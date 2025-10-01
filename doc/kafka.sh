@@ -18,3 +18,24 @@ docker exec -it kafka1 kafka-topics \
 docker exec -it kafka1 kafka-topics \
   --list \
   --bootstrap-server kafka1:9092
+
+
+docker exec -it kafka1 kafka-console-consumer \
+  --bootstrap-server kafka1:19092 \
+  --topic orders.v1 \
+  --group order-consumer-group \
+  --from-beginning
+
+# Delete old orders.v1
+docker exec -it kafka1 kafka-topics \
+  --delete \
+  --topic orders.v1 \
+  --bootstrap-server kafka1:19092
+
+# Delete old orders.v1.DLT
+docker exec -it kafka1 kafka-topics \
+  --delete \
+  --topic orders.v1.DLT \
+  --bootstrap-server kafka1:19092
+
+

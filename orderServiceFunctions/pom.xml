@@ -33,11 +33,11 @@
     </properties>
 
     <dependencies>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-actuator</artifactId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
-
 
         <!-- Cloud Stream core + Kafka binder -->
         <dependency>
@@ -83,6 +83,11 @@
             <optional>true</optional>
         </dependency>
 
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
 
         <!-- Tests -->
         <dependency>
