@@ -26,6 +26,9 @@ docker exec -it kafka1 kafka-console-consumer \
   --group order-consumer-group \
   --from-beginning
 
+#test connection from windows host to kafka broker
+Test-NetConnection -ComputerName 192.168.0.143 -Port 9092
+
 # Delete old orders.v1
 docker exec -it kafka1 kafka-topics \
   --delete \
