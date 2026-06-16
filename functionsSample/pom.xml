@@ -38,12 +38,6 @@
             <artifactId>spring-cloud-function-web</artifactId>
         </dependency>
 
-        <!-- OpenAPI for WebFlux -->
-        <dependency>
-            <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
-            <version>${springdoc.version}</version>
-        </dependency>
     </dependencies>
 
     <dependencyManagement>

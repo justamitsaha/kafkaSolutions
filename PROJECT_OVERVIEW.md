@@ -4,6 +4,22 @@ This project demonstrates an event-driven architecture using **Java 21**, **Spri
 
 ---
 
+## 💡 Learning Path & Project Philosophy
+
+The project is structured as a two-stage journey from functional programming to distributed event-driven systems:
+
+### Stage 1: The "Library of Patterns" (`functionsSample`)
+*   **Goal**: Understand **how** to write functions.
+*   **Focus**: A standalone walkthrough of Spring Cloud Function technology. It covers every major signature (Synchronous, Reactive, Message-based) in pure Java.
+*   **Infrastructure**: Zero. It uses HTTP adapters to expose functions as REST endpoints for instant testing.
+
+### Stage 2: The "Production Implementation" (`orderServiceFunctions`)
+*   **Goal**: Understand **where** to use functions.
+*   **Focus**: Applies the functional patterns from Stage 1 to a real-world **Event-Driven Architecture (EDA)**.
+*   **Infrastructure**: High. Uses Spring Cloud Stream and Kafka to build a resilient system with manual ACKs, retries, and Dead Letter Topics.
+
+---
+
 ## 📦 Module: `orderServiceFunctions`
 This is the core business module handling order lifecycles through reactive Kafka streams.
 
@@ -33,17 +49,10 @@ This is the core business module handling order lifecycles through reactive Kafk
 ---
 
 ## 🧪 Module: `functionsSample`
-A collection of utility functions exposed as HTTP endpoints to demonstrate the FaaS (Function-as-a-Service) model within Spring.
+A collection of utility functions demonstrating every major **Spring Cloud Function** signature.
 
-### 🛣 API Endpoints & Logic
-| Endpoint | Method | Logic |
-| :--- | :--- | :--- |
-| `/uppercase` | `POST` | Converts the request body string to uppercase. |
-| `/reverse` | `POST` | Reverses the request body string. |
-| `/randomUuid` | `GET` | Generates and returns a new random UUID string. |
-| `/logger` | `POST` | Consumes a string and prints it to the server console. |
-| `/processOrder` | `POST` | **State Logic**: If `quantity > 0`, returns `CONFIRMED`; otherwise, returns `REJECTED`. |
-| `/validateOrder` | `POST` | **Validation**: Throws `IllegalArgumentException` if the `item` field is null or blank. |
+> 📖 **Detailed Functional Documentation**: See the [FUNCTIONS_GUIDE.md](./functionsSample/FUNCTIONS_GUIDE.md) for a full list of endpoints, functional signatures, and their corresponding test scripts.
+
 
 ---
 
@@ -70,10 +79,10 @@ This is a lightweight module with no external infrastructure dependencies.
 
 *   **Infrastructure (External)**:
     *   **None**: Runs as a standalone HTTP server. No Kafka or Database required.
+    *   **Port**: Defaults to `8081` to avoid conflict with the order service.
 *   **Key Dependencies**:
     *   `spring-cloud-function-web`: Exposes Java functions as HTTP endpoints.
     *   `spring-boot-starter-webflux`: Provides the underlying Netty server.
-    *   `springdoc-openapi-starter-webflux-ui`: Swagger documentation.
 
 ---
 
