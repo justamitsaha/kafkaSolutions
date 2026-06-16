@@ -10,11 +10,9 @@ public class OrderServiceFunctionsApplication {
     private final static Logger logger = LoggerFactory.getLogger(OrderServiceFunctionsApplication.class);
 
     public static void main(String[] args) {
-        String rabbitMq = "http://192.168.0.143:15672/";
         String swagger_UI = "http://localhost:8080/swagger-ui/index.html";
         SpringApplication.run(OrderServiceFunctionsApplication.class, args);
         logger.info("Swagger UI, {} ", swagger_UI);
-        logger.info("Rabbit MQ, {} ", rabbitMq);
     }
 
 }

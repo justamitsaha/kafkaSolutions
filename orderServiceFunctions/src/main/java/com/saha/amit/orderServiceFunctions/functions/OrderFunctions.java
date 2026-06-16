@@ -1,5 +1,6 @@
 package com.saha.amit.orderServiceFunctions.functions;
 
+import com.saha.amit.orderServiceFunctions.exception.BadRequestException;
 import com.saha.amit.orderServiceFunctions.model.ErrorInfo;
 import com.saha.amit.orderServiceFunctions.model.OrderEvent;
 import com.saha.amit.orderServiceFunctions.model.OrderRequest;
@@ -50,9 +51,9 @@ public class OrderFunctions {
     @Bean
     public Function<Flux<OrderRequest>, Flux<Message<OrderEvent>>> ingestOrders() {
         return requestFlux -> requestFlux
-                .timeout(Duration.ofSeconds(15))
-                .onErrorResume(throwable -> Flux.error(new IllegalArgumentException("Invalid request payload", throwable)))
+                .switchIfEmpty(Flux.error(new IllegalArgumentException("Request body is empty")))
                 .map(req -> {
+                    // --- Validate DTO ---
                     var violations = validator.validate(req);
                     if (!violations.isEmpty()) {
                         var first = violations.iterator().next();
@@ -60,12 +61,16 @@ public class OrderFunctions {
                                 .orderId(req.getOrderId())
                                 .customerId(req.getCustomerId())
                                 .status(OrderStatus.VALIDATION_FAILED)
-                                .error(ErrorInfo.builder().code("VALIDATION_ERROR").message(first.getPropertyPath() + ": " + first.getMessage()).build())
+                                .error(ErrorInfo.builder()
+                                        .code("VALIDATION_ERROR")
+                                        .message(first.getPropertyPath() + ": " + first.getMessage())
+                                        .build())
                                 .build();
                         log.warn("Validation failed for orderId={}: {}", req.getOrderId(), first);
                         return buildEventMessage(evt, req.getCustomerId(), Map.of("validation", true));
                     }
 
+                    // --- Build event ---
                     var evt = OrderEvent.builder()
                             .orderId(req.getOrderId())
                             .customerId(req.getCustomerId())
@@ -73,8 +78,27 @@ public class OrderFunctions {
                             .build();
 
                     return buildEventMessage(evt, req.getCustomerId(), Map.of());
+                })
+                .onErrorResume(ex -> {
+                    // Catch JSON parse / deserialization errors
+                    if (ex instanceof org.springframework.core.codec.DecodingException ||
+                            ex.getCause() instanceof com.fasterxml.jackson.databind.JsonMappingException) {
+                        log.error("Invalid JSON input: {}", ex.getMessage());
+                        return Flux.error(new BadRequestException("Malformed JSON request"));
+                    }
+                    log.error("Unexpected error in ingestOrders: {}", ex.getMessage(), ex);
+                    return Flux.error(ex);
                 });
     }
+
+    private Message<OrderEvent> buildEventMessage(OrderEvent evt, String key, Map<String, Object> extraHeaders) {
+        log.info("Producing event: orderId={} status={} key={}", evt.getOrderId(), evt.getStatus(), key);
+        MessageBuilder<OrderEvent> builder = MessageBuilder.withPayload(evt)
+                .setHeader(KafkaHeaders.KEY, key);
+        extraHeaders.forEach(builder::setHeader);
+        return builder.build();
+    }
+
 
     /**
      * Kafka → Function (consumer) with MANUAL ack.
@@ -125,33 +149,17 @@ public class OrderFunctions {
         }
     }
 
+
+    public Flux<OrderEvent> getProcessedEventsStream() {
+        return processedEventsSink.asFlux();
+    }
+
+
     /**
      * Optional: Imperative publishing path for non-Function use-cases.
      * Call this method from services/controllers if ever needed.
      */
     public boolean publishOrderEvent(OrderEvent event) {
         return streamBridge.send("ingestOrders-out-0", buildEventMessage(event, event.getCustomerId(), Map.of("source", "imperative")));
-    }
-
-    /** Simple demo function exposed over HTTP (POST /reverse). */
-    @Bean
-    public Function<String, String> reverse() {
-        return s -> new StringBuilder(s).reverse().toString();
-    }
-
-    /**
-     * Optional: hot stream supplier to expose processed events to another topic if needed.
-     * Bind with: processed-out-0 → some.topic (and add to spring.cloud.function.definition)
-     */
-    @Bean
-    public Supplier<Flux<OrderEvent>> processed() {
-        return () -> processedEventsSink.asFlux();
-    }
-
-    private Message<OrderEvent> buildEventMessage(OrderEvent evt, String key, Map<String, Object> extraHeaders) {
-        MessageBuilder<OrderEvent> builder = MessageBuilder.withPayload(evt)
-                .setHeader(KafkaHeaders.KEY, key);
-        extraHeaders.forEach(builder::setHeader);
-        return builder.build();
     }
 }
