@@ -23,6 +23,8 @@ The project is structured as a two-stage journey from functional programming to 
 ## 📦 Module: `orderServiceFunctions`
 This is the core business module handling order lifecycles through reactive Kafka streams.
 
+> 📖 **Detailed Architecture Documentation**: See the [ORDER_SERVICE_GUIDE.md](./orderServiceFunctions/ORDER_SERVICE_GUIDE.md) for a deep dive into the ingestion/processing pipelines, Kafka patterns, and manual ACKs.
+
 ### 🛣 API Endpoints
 | Method | Endpoint | Input | Action |
 | :--- | :--- | :--- | :--- |
