@@ -21,8 +21,15 @@ When you add the `spring-cloud-function-web` dependency, Spring Boot scans your 
 - A bean named `sanitizeText` becomes reachable at `POST /sanitizeText`.
 - A bean named `generateEventId` becomes reachable at `GET /generateEventId`.
 
-### 2. Function Composition
-You can chain functions together without writing extra code by using the `|` operator in configuration or via `.andThen()` in Java.
+### 2. The Router Configuration (`spring.cloud.function.definition`)
+This property in `application.properties` acts as the API's table of contents. It is highly recommended to use it for:
+- **Explicit Exposure (Security)**: By listing beans separated by semicolons (e.g., `sanitizeText;generateEventId`), you tell the framework *exactly* which functions to expose as web endpoints, preventing accidental exposure of internal background functions.
+- **Resolving Ambiguity**: It forces the web adapter to correctly register and initialize the routing table for all specified functions at startup.
+
+### 3. Function Composition
+You can chain functions together without writing extra code:
+- **Declaratively**: Using the `|` operator in the definition property (e.g., `spring.cloud.function.definition=sanitizeText|auditEvent`).
+- **Programmatically**: Using `.andThen()` directly in your Java `@Bean` definition.
 
 ---
 
@@ -31,6 +38,7 @@ You can chain functions together without writing extra code by using the `|` ope
 | Endpoint | Method | Java Signature | Logic Description | Test Script |
 | :--- | :--- | :--- | :--- | :--- |
 | `/sanitizeText` | `POST` | `Function<String, String>` | Trims and converts text to uppercase. | [base_test](./test_base_functions.sh) |
+| `/maskSensitiveData` | `POST` | `Function<String, String>` | Masks sensitive data (reverses + ****). | [base_test](./test_base_functions.sh) |
 | `/generateEventId` | `GET` | `Supplier<UUID>` | Generates a new random UUID. | [base_test](./test_base_functions.sh) |
 | `/auditEvent` | `POST` | `Consumer<String>` | Logs the input string to the audit log. | [base_test](./test_base_functions.sh) |
 | `/processOrder` | `POST` | `Function<Req, Res>` | POJO-based domain logic. | [base_test](./test_base_functions.sh) |

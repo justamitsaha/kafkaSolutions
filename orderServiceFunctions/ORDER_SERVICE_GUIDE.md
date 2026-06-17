@@ -52,6 +52,20 @@ The service maintains a `Sinks.Many<OrderEvent>` which acts as a bridge between 
 
 ---
 
+## 🏗 Topic Management Strategy (`KafkaTopicsConfig.java`)
+
+In the source code, you will find `KafkaTopicsConfig.java` with its `@Configuration` annotation **commented out**. 
+
+While Spring Boot allows you to programmatically create topics via `NewTopic` beans, this is generally considered an **anti-pattern for production environments** for several reasons:
+
+1.  **Configuration Override Risk**: If the application auto-creates a topic, it might create it with default settings (e.g., Replication Factor = 1), overriding the cluster defaults or failing to meet high-availability requirements (like our required Replication Factor of 3).
+2.  **Separation of Concerns**: Infrastructure (topics, partitions, retention policies) should be managed by Infrastructure-as-Code (IaC) tools like Terraform or dedicated Kafka Ops teams, not the application code.
+3.  **Connection Issues**: Auto-creation logic sometimes relies on default bootstrap-server properties, which can lead to connection timeouts if not perfectly aligned with the environment variables.
+
+**Best Practice**: We rely on external scripts (like `doc/kafka.sh`) or IaC to provision topics *before* the application starts.
+
+---
+
 ## 🛠 Infrastructure Requirements
 
 This module requires the 3-node Kafka cluster defined in the root directory.
