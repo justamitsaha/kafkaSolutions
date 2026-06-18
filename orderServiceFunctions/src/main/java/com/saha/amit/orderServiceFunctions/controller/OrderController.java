@@ -23,8 +23,14 @@ public class OrderController {
     private final OrderFunctions orderFunctions;
 
     /**
-     * Ingest orders from HTTP → Kafka
-     * Accepts a JSON array of OrderRequest objects
+     * REST Endpoint for ingesting new orders into the Event-Driven pipeline.
+     * 
+     * <p>Instead of manually using a KafkaTemplate, this controller simply delegates the incoming 
+     * HTTP payload to the {@code ingestOrders} Spring Cloud Function. The framework handles the reactive 
+     * bridging between the HTTP request and the Kafka producer.</p>
+     *
+     * @param orders A JSON list of incoming Order requests.
+     * @return A reactive Flux echoing back the generated OrderEvents.
      */
     @PostMapping("/ingest")
     public Flux<OrderEvent> ingestOrdersHttp(@RequestBody List<OrderRequest> orders) {
@@ -35,8 +41,12 @@ public class OrderController {
     }
 
     /**
-     * Stream processed order events via SSE
-     * GET /api/orders/stream
+     * REST Endpoint exposing a real-time, unidirectional data stream to the client.
+     * 
+     * <p>Uses Server-Sent Events (SSE) {@code text/event-stream} to push data to the browser or client 
+     * the moment a Kafka message is successfully processed by the consumer logic.</p>
+     *
+     * @return A hot Flux stream that remains open until the client disconnects.
      */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<OrderEvent> streamOrders() {
@@ -44,4 +54,3 @@ public class OrderController {
         return orderFunctions.getProcessedEventsStream();
     }
 }
-

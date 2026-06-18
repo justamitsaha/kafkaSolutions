@@ -44,9 +44,20 @@ public class OrderFunctions {
     private final AtomicLong failedCounter = new AtomicLong();
 
     /**
-     * HTTP → Function → Kafka (producer)
-     * POST /ingestOrders with JSON body (single or array). Returns 200 immediately while Kafka publish happens reactively.
-     * Binds to: ingestOrders-out-0 → orders.v1
+     * Pipeline 1: Ingestion (HTTP -> Function -> Kafka Producer)
+     * 
+     * This function acts as the entry point for new orders. It takes a reactive stream of incoming
+     * {@link OrderRequest} objects, validates them against JSR-303 constraints, and transforms them 
+     * into {@link OrderEvent} messages.
+     *
+     * <p><strong>Architectural Details:</strong></p>
+     * <ul>
+     *   <li><strong>Routing:</strong> Bound to the destination `orders.v1` via the property `spring.cloud.stream.bindings.ingestOrders-out-0.destination`.</li>
+     *   <li><strong>Partitioning:</strong> The `customerId` is explicitly set as the Kafka partition key (via `KafkaHeaders.KEY`) to guarantee that all orders for a specific customer are processed sequentially by the same consumer thread.</li>
+     *   <li><strong>Error Handling:</strong> If validation fails, the event is still published but marked as `VALIDATION_FAILED`. Deserialization errors result in a Bad Request.</li>
+     * </ul>
+     *
+     * @return A Function that maps a Flux of raw requests to a Flux of Kafka-bound Messages.
      */
     @Bean
     public Function<Flux<OrderRequest>, Flux<Message<OrderEvent>>> ingestOrders() {
@@ -91,6 +102,16 @@ public class OrderFunctions {
                 });
     }
 
+    /**
+     * Helper utility to construct a Spring Integration {@link Message} intended for Kafka.
+     * This method ensures the payload is properly wrapped with standard Kafka headers (like the Partition Key)
+     * and any custom application-specific metadata.
+     *
+     * @param evt The core business payload (OrderEvent).
+     * @param key The string used by Kafka to determine partition routing (usually Customer ID).
+     * @param extraHeaders Additional contextual metadata to be injected into the Kafka message headers.
+     * @return A fully constructed Message ready for the Spring Cloud Stream binder.
+     */
     private Message<OrderEvent> buildEventMessage(OrderEvent evt, String key, Map<String, Object> extraHeaders) {
         log.info("Producing event: orderId={} status={} key={}", evt.getOrderId(), evt.getStatus(), key);
         MessageBuilder<OrderEvent> builder = MessageBuilder.withPayload(evt)
@@ -101,9 +122,19 @@ public class OrderFunctions {
 
 
     /**
-     * Kafka → Function (consumer) with MANUAL ack.
-     * Binds to: orders-in-0 ← orders.v1
-     * If processing fails, we DON'T ack; binder will retry according to backoff, then route to DLT after maxAttempts.
+     * Pipeline 2: Processing (Kafka Consumer -> Business Logic -> Reactive Sink)
+     * 
+     * This consumer subscribes to the Kafka topic and processes incoming order events. It demonstrates 
+     * enterprise-grade consumer resiliency patterns.
+     *
+     * <p><strong>Architectural Details:</strong></p>
+     * <ul>
+     *   <li><strong>Routing:</strong> Bound to the destination `orders.v1` via `spring.cloud.stream.bindings.orders-in-0.destination`.</li>
+     *   <li><strong>Manual Acknowledgment:</strong> Configured with `ackMode=MANUAL`. The offset is ONLY committed if the business logic block completes without throwing an exception.</li>
+     *   <li><strong>Resiliency & DLT:</strong> If an exception is thrown (e.g., due to `VALIDATION_FAILED`), the binder will retry 3 times with exponential backoff. If it still fails, the message is automatically routed to `orders.v1.DLT` (Dead Letter Topic).</li>
+     * </ul>
+     *
+     * @return A Consumer that subscribes to a Flux of incoming Kafka Messages.
      */
     @Bean
     public Consumer<Flux<Message<OrderEvent>>> orders() {
@@ -114,6 +145,13 @@ public class OrderFunctions {
                 .subscribe();
     }
 
+    /**
+     * Core business logic execution block for a single Kafka message.
+     * Extracts the raw Kafka record and acknowledgment objects from the message headers to provide 
+     * fine-grained control over the commit process.
+     *
+     * @param msg The incoming message from Kafka, containing both the payload and broker metadata.
+     */
     private void handleIncomingMessage(Message<OrderEvent> msg) {
         var payload = msg.getPayload();
         var headers = msg.getHeaders();
@@ -150,6 +188,13 @@ public class OrderFunctions {
     }
 
 
+    /**
+     * Exposes the internal Reactive Sink as a standard Flux.
+     * This allows external components (like HTTP Controllers) to subscribe to the live stream of 
+     * successfully processed orders for real-time broadcasting (e.g., Server-Sent Events).
+     *
+     * @return A hot Flux emitting successfully processed OrderEvents.
+     */
     public Flux<OrderEvent> getProcessedEventsStream() {
         return processedEventsSink.asFlux();
     }
