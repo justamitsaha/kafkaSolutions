@@ -26,6 +26,67 @@ The service is divided into two main reactive pipelines:
 
 ---
 
+## 🕵️‍♂️ How to Verify the Flow
+
+To truly understand the asynchronous nature of this architecture, you need to observe the application from three different angles simultaneously.
+
+### Step 1: Open the Monitors
+Open two separate terminal windows to act as your "monitors".
+
+**Terminal 1: Subscribe to the SSE Stream**
+This acts as your frontend UI, listening for successfully processed events.
+```bash
+curl -N 'http://localhost:8080/api/orders/stream'
+```
+
+**Terminal 2: Start the Kafka Console Consumer**
+This allows you to peek inside the Kafka broker to see the raw messages. Run this from the root of the project:
+```bash
+docker exec -it kafka1 kafka-console-consumer \
+  --bootstrap-server kafka1:19092 \
+  --topic orders.v1 \
+  --property print.key=true \
+  --property print.headers=true
+```
+
+### Step 2: Ingest a Valid Order
+In a third terminal, post a valid order payload:
+```bash
+curl -X POST 'http://localhost:8080/api/orders/ingest' \
+  -H 'Content-Type: application/json' \
+  -d '[{"orderId":"ORD-SUCCESS", "customerId":"CUST-1", "customerName":"John Doe", "amount":99.99}]'
+```
+
+**What you should see:**
+1.  **API Response**: You will immediately receive a 200 OK with the generated event.
+2.  **Terminal 2 (Kafka)**: You will see the raw JSON message appear in the `orders.v1` topic. You will also see `CUST-1` printed as the message Key (proving the partitioning strategy works).
+3.  **Application Logs**: You will see `Processing order: id=ORD-SUCCESS...` followed immediately by `Acked partition=X offset=Y`. This proves the **Manual Acknowledgment** succeeded.
+4.  **Terminal 1 (SSE Stream)**: You will see `data:{"orderId":"ORD-SUCCESS"...}` appear. This proves the backend successfully processed the Kafka message and pushed it to the frontend.
+
+### Step 3: Ingest an Invalid Order (Triggering the DLT)
+Now, post an invalid order (missing the mandatory `customerName` field and having a non-positive `amount`):
+```bash
+curl -X POST 'http://localhost:8080/api/orders/ingest' \
+  -H 'Content-Type: application/json' \
+  -d '[{"orderId":"ORD-FAIL", "customerId":"CUST-2", "customerName":"", "amount":-5.00}]'
+```
+
+**What you should see:**
+1.  **Terminal 2 (Kafka)**: You will see the event arrive in `orders.v1`, but with the status `VALIDATION_FAILED` and an embedded error object.
+2.  **Application Logs**: This is where the magic happens. You will see an error: `IllegalArgumentException: Downstream refused invalid order`. 
+    *   Because an exception was thrown, the code **skips the manual acknowledgment**.
+    *   You will then see Spring Cloud Stream wait 1 second, and try again. Then 2 seconds, then 4 seconds (Exponential Backoff).
+    *   After 3 failed attempts, it stops retrying.
+3.  **Terminal 1 (SSE Stream)**: **Nothing happens.** The message is never emitted to the SSE stream because it failed processing.
+
+To prove the message wasn't lost, check the Dead Letter Topic:
+```bash
+docker exec -it kafka1 kafka-console-consumer --bootstrap-server kafka1:19092 --topic orders.v1.DLT --from-beginning
+```
+You will see your `ORD-FAIL` message sitting safely in the DLT.
+
+---
+
 ## 🗺 API Endpoints
 
 | Endpoint | Method | Technical Pattern | Description | Test Script |

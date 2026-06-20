@@ -15,18 +15,18 @@ echo -e "\n\n[STEP 2] Ingesting VALID orders (POST /api/orders/ingest)..."
 curl -X POST 'http://localhost:8080/api/orders/ingest' \
   -H 'Content-Type: application/json' \
   -d '[
-    {"orderId":"ORD-100", "customerId":"CUST-A", "item":"Graphics Card", "quantity":1},
-    {"orderId":"ORD-101", "customerId":"CUST-A", "item":"Monitor", "quantity":2}
+    {"orderId":"ORD-100", "customerId":"CUST-A", "customerName":"Alice", "amount":150.00},
+    {"orderId":"ORD-101", "customerId":"CUST-A", "customerName":"Alice", "amount":89.50}
   ]'
 
 sleep 2
 
 # 3. Ingest INVALID Orders (Triggering DLT/Validation Logic)
-echo -e "\n\n[STEP 3] Ingesting INVALID orders (Missing Item)..."
+echo -e "\n\n[STEP 3] Ingesting INVALID orders (Missing customerName)..."
 curl -X POST 'http://localhost:8080/api/orders/ingest' \
   -H 'Content-Type: application/json' \
   -d '[
-    {"orderId":"ORD-ERR", "customerId":"CUST-B", "item":"", "quantity":-5}
+    {"orderId":"ORD-ERR", "customerId":"CUST-B", "customerName":"", "amount":-5.00}
   ]'
 
 sleep 5

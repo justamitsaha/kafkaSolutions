@@ -18,35 +18,23 @@ The project is structured as a two-stage journey from functional programming to 
 *   **Focus**: Applies the functional patterns from Stage 1 to a real-world **Event-Driven Architecture (EDA)**.
 *   **Infrastructure**: High. Uses Spring Cloud Stream and Kafka to build a resilient system with manual ACKs, retries, and Dead Letter Topics.
 
+### Stage 3: Advanced Orchestration (`orderServiceFunctionsSaga`)
+*   **Goal**: Understand **how to coordinate** multiple functions across topics.
+*   **Focus**: Implements the **Saga Pattern (Choreography)** where multiple microservices (or functions) coordinate a complex transaction (Order -> Payment -> Completion) purely through event exchange.
+
 ---
 
 ## 📦 Module: `orderServiceFunctions`
-This is the core business module handling order lifecycles through reactive Kafka streams.
+This is the core business module handling basic order lifecycles through reactive Kafka streams.
 
-> 📖 **Detailed Architecture Documentation**: See the [ORDER_SERVICE_GUIDE.md](./orderServiceFunctions/ORDER_SERVICE_GUIDE.md) for a deep dive into the ingestion/processing pipelines, Kafka patterns, and manual ACKs.
+> 📖 **Detailed Architecture Documentation**: See the [ORDER_SERVICE_GUIDE.md](./spring-cloud-stream/orderServiceFunctions/ORDER_SERVICE_GUIDE.md) for a deep dive into the ingestion/processing pipelines, Kafka patterns, and manual ACKs.
 
-### 🛣 API Endpoints
-| Method | Endpoint | Input | Action |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/orders/ingest` | `List<OrderRequest>` | Validates orders and publishes to Kafka topic `orders.v1`. |
-| `GET` | `/api/orders/stream` | N/A | **Server-Sent Events (SSE)**: Streams processed orders to the client in real-time. |
+---
 
-### 🧠 Business Logic & State Flow
-1.  **Ingestion Phase (`ingestOrders`):**
-    *   **Validation**: Uses JSR-303 (Jakarta Validation).
-    *   **State Change**: 
-        *   If validation fails: Sets status to `VALIDATION_FAILED` and adds error details.
-        *   If validation passes: Sets status to `RECEIVED`.
-    *   **Output**: Message is sent to Kafka with `customerId` as the partition key.
-2.  **Processing Phase (`orders` consumer):**
-    *   **Filter**: If an incoming event has `VALIDATION_FAILED`, the consumer throws an exception (triggering Kafka retries and eventually the DLT).
-    *   **Action**: Valid orders are broadcasted to the internal reactive sink for the `/stream` endpoint.
-    *   **Acknowledgment**: Manual offset commit only happens after successful processing.
+## 🎭 Module: `orderServiceFunctionsSaga`
+This module extends the base order service to demonstrate a multi-stage **Event Choreography (Saga)** workflow.
 
-### 🛠 Error Handling
-- **Retries**: 3 attempts with exponential backoff (1s to 10s).
-- **Dead Letter Topic**: Failed messages are moved to `orders.v1.DLT`.
-- **Manual ACKs**: Offset is committed only *after* the consumer logic completes.
+> 📖 **Detailed Saga Documentation**: See the [SAGA_GUIDE.md](./spring-cloud-stream/orderServiceFunctionsSaga/SAGA_GUIDE.md) for an explanation of the workflow steps, new topics, and state transitions.
 
 ---
 
