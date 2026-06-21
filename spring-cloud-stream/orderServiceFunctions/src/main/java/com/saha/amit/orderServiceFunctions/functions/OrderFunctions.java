@@ -21,7 +21,6 @@ import reactor.core.publisher.Sinks;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -39,9 +38,6 @@ public class OrderFunctions {
 
     // In-memory hot sink to broadcast processed events to any reactive subscribers (e.g., SSE if you add one)
     private final Sinks.Many<OrderEvent> processedEventsSink = Sinks.many().multicast().onBackpressureBuffer();
-
-    private final AtomicLong processedCounter = new AtomicLong();
-    private final AtomicLong failedCounter = new AtomicLong();
 
     /**
      * Pipeline 1: Ingestion (HTTP -> Function -> Kafka Producer)
@@ -63,6 +59,7 @@ public class OrderFunctions {
     public Function<Flux<OrderRequest>, Flux<Message<OrderEvent>>> ingestOrders() {
         return requestFlux -> requestFlux
                 .switchIfEmpty(Flux.error(new IllegalArgumentException("Request body is empty")))
+                .doOnNext(orderRequest -> log.info("Incoming order request: {}", orderRequest))
                 .map(req -> {
                     // --- Validate DTO ---
                     var violations = validator.validate(req);
@@ -173,7 +170,6 @@ public class OrderFunctions {
 
             // Broadcast to the sink for live subscribers (optional)
             processedEventsSink.tryEmitNext(payload);
-            processedCounter.incrementAndGet();
 
             // Ack ONLY after business success
             if (ack != null) {
@@ -181,7 +177,6 @@ public class OrderFunctions {
                 log.debug("Acked partition={} offset={}", rec != null ? rec.partition() : null, rec != null ? rec.offset() : null);
             }
         } catch (Exception e) {
-            failedCounter.incrementAndGet();
             log.error("Processing failed for orderId={}: {}", payload.getOrderId(), e.getMessage(), e);
             // Intentionally do not ack → binder will retry & eventually send to DLT
         }
@@ -199,12 +194,4 @@ public class OrderFunctions {
         return processedEventsSink.asFlux();
     }
 
-
-    /**
-     * Optional: Imperative publishing path for non-Function use-cases.
-     * Call this method from services/controllers if ever needed.
-     */
-    public boolean publishOrderEvent(OrderEvent event) {
-        return streamBridge.send("ingestOrders-out-0", buildEventMessage(event, event.getCustomerId(), Map.of("source", "imperative")));
-    }
 }
