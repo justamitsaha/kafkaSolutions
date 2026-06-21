@@ -5,8 +5,6 @@ import com.saha.amit.orderServiceFunctions.model.*;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.support.Acknowledgment;
@@ -15,13 +13,13 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuples;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
  * Reactive Kafka functions with manual acknowledgment and production-grade patterns.
@@ -32,13 +30,9 @@ import java.util.function.Supplier;
 public class OrderFunctions {
 
     private final Validator validator;
-    private final StreamBridge streamBridge; // optional imperative publishing
 
     // In-memory hot sink to broadcast processed events to any reactive subscribers (e.g., SSE if you add one)
     private final Sinks.Many<OrderEvent> processedEventsSink = Sinks.many().multicast().onBackpressureBuffer();
-
-    private final AtomicLong processedCounter = new AtomicLong();
-    private final AtomicLong failedCounter = new AtomicLong();
 
     /**
      * Pipeline 1: Ingestion (HTTP -> Function -> Kafka Producer)
@@ -124,38 +118,47 @@ public class OrderFunctions {
      * and emits a PaymentEvent to payments.v1 to trigger the next step.
      */
     @Bean
-    public Function<Flux<Message<OrderEvent>>, Flux<Message<PaymentEvent>>> orderProcessor() {
-        return flux -> flux
-                .doOnNext(msg -> {
-                    Acknowledgment ack = msg.getHeaders().get(KafkaHeaders.ACKNOWLEDGMENT, Acknowledgment.class);
-                    if (ack != null) ack.acknowledge();
-                })
-                .filter(msg -> msg.getPayload().getStatus() == OrderStatus.RECEIVED)
-                .map(msg -> {
-                    OrderEvent payload = msg.getPayload();
-                    log.info("[Workflow] Step 1: Order {} RECEIVED. Updating status to PLACED...", payload.getOrderId());
-                    
-                    // 1. Emit PLACED status update back to orders.v1 so the UI sees the state change
-                    OrderEvent placedEvent = OrderEvent.builder()
-                            .orderId(payload.getOrderId())
-                            .customerId(payload.getCustomerId())
-                            .status(OrderStatus.PLACED)
-                            .build();
-                    streamBridge.send("orders.v1", buildEventMessage(placedEvent, placedEvent.getCustomerId(), Map.of()));
+    public Function<Flux<Message<OrderEvent>>, Tuple2<Flux<Message<OrderEvent>>, Flux<Message<PaymentEvent>>>> orderProcessor() {
+        return flux -> {
+            Flux<Message<OrderEvent>> sharedFlux = flux
+                    .filter(msg -> msg.getPayload().getStatus() == OrderStatus.RECEIVED)
+                    .doOnNext(msg -> {
+                        Acknowledgment ack = msg.getHeaders().get(KafkaHeaders.ACKNOWLEDGMENT, Acknowledgment.class);
+                        if (ack != null) ack.acknowledge();
+                    })
+                    .publish()
+                    .autoConnect(2);
 
-                    // 2. Trigger Payment Event for the next microservice/function
-                    log.info("[Workflow] Step 2: Triggering Payment for Order {}", payload.getOrderId());
-                    PaymentEvent payment = PaymentEvent.builder()
-                            .orderId(payload.getOrderId())
-                            .customerId(payload.getCustomerId())
-                            .amount(100.0) // Mock amount
-                            .paymentStatus("PENDING")
-                            .build();
-                    
-                    return MessageBuilder.withPayload(payment)
-                            .setHeader(KafkaHeaders.KEY, payment.getCustomerId())
-                            .build();
-                });
+            Flux<Message<OrderEvent>> orderOutput = sharedFlux.map(msg -> {
+                OrderEvent payload = msg.getPayload();
+                log.info("[Workflow] Step 1: Order {} RECEIVED. Updating status to PLACED...", payload.getOrderId());
+                
+                OrderEvent placedEvent = OrderEvent.builder()
+                        .orderId(payload.getOrderId())
+                        .customerId(payload.getCustomerId())
+                        .status(OrderStatus.PLACED)
+                        .build();
+                return buildEventMessage(placedEvent, placedEvent.getCustomerId(), Map.of());
+            });
+
+            Flux<Message<PaymentEvent>> paymentOutput = sharedFlux.map(msg -> {
+                OrderEvent payload = msg.getPayload();
+                log.info("[Workflow] Step 2: Triggering Payment for Order {}", payload.getOrderId());
+                
+                PaymentEvent payment = PaymentEvent.builder()
+                        .orderId(payload.getOrderId())
+                        .customerId(payload.getCustomerId())
+                        .amount(100.0) // Mock amount
+                        .paymentStatus("PENDING")
+                        .build();
+                
+                return MessageBuilder.withPayload(payment)
+                        .setHeader(KafkaHeaders.KEY, payment.getCustomerId())
+                        .build();
+            });
+
+            return Tuples.of(orderOutput, paymentOutput);
+        };
     }
 
     /**
@@ -200,7 +203,6 @@ public class OrderFunctions {
                     OrderEvent evt = msg.getPayload();
                     log.info("[Sink] Order {} status updated to: {}", evt.getOrderId(), evt.getStatus());
                     processedEventsSink.tryEmitNext(evt);
-                    processedCounter.incrementAndGet();
                 })
                 .doOnError(err -> log.error("[orderFinalizer] stream error: {}", err.getMessage(), err))
                 .subscribe();
@@ -219,11 +221,5 @@ public class OrderFunctions {
     }
 
 
-    /**
-     * Optional: Imperative publishing path for non-Function use-cases.
-     * Call this method from services/controllers if ever needed.
-     */
-    public boolean publishOrderEvent(OrderEvent event) {
-        return streamBridge.send("ingestOrders-out-0", buildEventMessage(event, event.getCustomerId(), Map.of("source", "imperative")));
-    }
+
 }
