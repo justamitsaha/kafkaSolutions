@@ -28,62 +28,99 @@ The service is divided into two main reactive pipelines:
 
 ## 🕵️‍♂️ How to Verify the Flow
 
-To truly understand the asynchronous nature of this architecture, you need to observe the application from three different angles simultaneously.
+To truly understand the asynchronous nature and broker portability of this architecture, you can monitor and verify the pipelines under either **Apache Kafka** or **RabbitMQ** modes.
 
-### Step 1: Open the Monitors
-Open two separate terminal windows to act as your "monitors".
+---
 
-**Terminal 1: Subscribe to the SSE Stream**
-This acts as your frontend UI, listening for successfully processed events.
-```bash
-curl -N 'http://localhost:8080/api/orders/stream'
-```
+### Option 1: Verification in Kafka Mode
 
-**Terminal 2: Start the Kafka Console Consumer**
-This allows you to peek inside the Kafka broker to see the raw messages. Run this from the root of the project:
-```bash
-docker exec -it kafka1 kafka-console-consumer \
-  --bootstrap-server kafka1:19092 \
-  --topic orders.v1 \
-  --property print.key=true \
-  --property print.headers=true
-```
+Ensure the application is running with the Kafka profile active (`--spring.profiles.active=kafka`).
 
-### Step 2: Ingest a Valid Order
+#### Step 1: Open the Monitors
+Open two separate terminal windows:
+*   **Terminal 1 (SSE Stream)**:
+    ```bash
+    curl -N 'http://localhost:8080/api/orders/stream'
+    ```
+*   **Terminal 2 (Kafka Topic Consumer)**: Run from the project root:
+    ```bash
+    docker exec -it kafka1 kafka-console-consumer \
+      --bootstrap-server kafka1:19092 \
+      --topic orders.v1 \
+      --property print.key=true \
+      --property print.headers=true
+    ```
+
+#### Step 2: Ingest a Valid Order
 In a third terminal, post a valid order payload:
 ```bash
 curl -X POST 'http://localhost:8080/api/orders/ingest' \
   -H 'Content-Type: application/json' \
   -d '[{"orderId":"ORD-SUCCESS", "customerId":"CUST-1", "customerName":"John Doe", "amount":99.99}]'
 ```
+*   **What you should see**:
+    1.  **API Response**: Immediate `200 OK` listing the received events.
+    2.  **Terminal 2 (Kafka)**: The raw JSON message appears in `orders.v1` with the key `CUST-1`.
+    3.  **Application Logs**: Logs `Processing order: id=ORD-SUCCESS...` followed by `Acked partition=X offset=Y`, indicating manual offset commitment.
+    4.  **Terminal 1 (SSE Stream)**: Pushes the event `data:{"orderId":"ORD-SUCCESS"...}` in real-time.
 
-**What you should see:**
-1.  **API Response**: You will immediately receive a 200 OK with the generated event.
-2.  **Terminal 2 (Kafka)**: You will see the raw JSON message appear in the `orders.v1` topic. You will also see `CUST-1` printed as the message Key (proving the partitioning strategy works).
-3.  **Application Logs**: You will see `Processing order: id=ORD-SUCCESS...` followed immediately by `Acked partition=X offset=Y`. This proves the **Manual Acknowledgment** succeeded.
-4.  **Terminal 1 (SSE Stream)**: You will see `data:{"orderId":"ORD-SUCCESS"...}` appear. This proves the backend successfully processed the Kafka message and pushed it to the frontend.
-
-### Step 3: Ingest an Invalid Order (Triggering the DLT)
-Now, post an invalid order (missing the mandatory `customerName` field and having a non-positive `amount`):
+#### Step 3: Ingest an Invalid Order (Triggering the DLT)
+Post an invalid order (missing the `customerName` field and a negative `amount`):
 ```bash
 curl -X POST 'http://localhost:8080/api/orders/ingest' \
   -H 'Content-Type: application/json' \
   -d '[{"orderId":"ORD-FAIL", "customerId":"CUST-2", "customerName":"", "amount":-5.00}]'
 ```
+*   **What you should see**:
+    1.  **Application Logs**: Throws `IllegalArgumentException: Downstream refused invalid order`. The server skips manual ACK, attempts processing 3 times (using exponential backoff), and then stops.
+    2.  **Terminal 1 (SSE Stream)**: Nothing is emitted.
+    3.  **DLT Verification**: Run the console consumer on the dead-letter topic:
+        ```bash
+        docker exec -it kafka1 kafka-console-consumer --bootstrap-server kafka1:19092 --topic orders.v1.DLT --from-beginning
+        ```
+        The failed `ORD-FAIL` payload is visible.
 
-**What you should see:**
-1.  **Terminal 2 (Kafka)**: You will see the event arrive in `orders.v1`, but with the status `VALIDATION_FAILED` and an embedded error object.
-2.  **Application Logs**: This is where the magic happens. You will see an error: `IllegalArgumentException: Downstream refused invalid order`. 
-    *   Because an exception was thrown, the code **skips the manual acknowledgment**.
-    *   You will then see Spring Cloud Stream wait 1 second, and try again. Then 2 seconds, then 4 seconds (Exponential Backoff).
-    *   After 3 failed attempts, it stops retrying.
-3.  **Terminal 1 (SSE Stream)**: **Nothing happens.** The message is never emitted to the SSE stream because it failed processing.
+---
 
-To prove the message wasn't lost, check the Dead Letter Topic:
+### Option 2: Verification in RabbitMQ Mode
+
+Ensure the application is running with the RabbitMQ profile active (`--spring.profiles.active=rabbitmq`).
+
+#### Step 1: Open the Monitors
+*   **Terminal 1 (SSE Stream)**:
+    ```bash
+    curl -N 'http://localhost:8080/api/orders/stream'
+    ```
+*   **Browser (RabbitMQ Management Dashboard)**:
+    Open [http://localhost:15672](http://localhost:15672) (Login: `guest` / `guest`).
+    *   Navigate to the **Exchanges** tab to verify `orders.v1` has been automatically created.
+    *   Navigate to the **Queues** tab to see that the binder has provisioned the `orders.v1.order-processors` queue and the `orders.v1.order-processors.dlq` queue.
+
+#### Step 2: Ingest a Valid Order
+In another terminal, post a valid order payload:
 ```bash
-docker exec -it kafka1 kafka-console-consumer --bootstrap-server kafka1:19092 --topic orders.v1.DLT --from-beginning
+curl -X POST 'http://localhost:8080/api/orders/ingest' \
+  -H 'Content-Type: application/json' \
+  -d '[{"orderId":"ORD-SUCCESS-RABBIT", "customerId":"CUST-1", "customerName":"John Doe", "amount":99.99}]'
 ```
-You will see your `ORD-FAIL` message sitting safely in the DLT.
+*   **What you should see**:
+    1.  **API Response**: Immediate `200 OK`.
+    2.  **Terminal 1 (SSE Stream)**: Pushes the event `data:{"orderId":"ORD-SUCCESS-RABBIT"...}` in real-time.
+    3.  **RabbitMQ Management**: The message count spikes and goes back to zero immediately in `orders.v1.order-processors` as the consumer processes and acknowledges the message.
+
+#### Step 3: Ingest an Invalid Order (Triggering the DLQ)
+Post an invalid order:
+```bash
+curl -X POST 'http://localhost:8080/api/orders/ingest' \
+  -H 'Content-Type: application/json' \
+  -d '[{"orderId":"ORD-FAIL-RABBIT", "customerId":"CUST-2", "customerName":"", "amount":-5.00}]'
+```
+*   **What you should see**:
+    1.  **Application Logs**: Exception is thrown. Spring Cloud Stream retries processing 3 times.
+    2.  **Terminal 1 (SSE Stream)**: Nothing is emitted.
+    3.  **RabbitMQ Management (DLQ Verification)**:
+        *   In the **Queues** tab, you will see `1` message sitting inside the `orders.v1.order-processors.dlq` queue.
+        *   Click on the queue name `orders.v1.order-processors.dlq`, scroll down to the **Get messages** section, and click **Get Message(s)** to inspect the payload, custom headers, and the failure exception stack trace injected by the binder.
 
 ---
 
@@ -181,10 +218,39 @@ While Spring Boot allows you to programmatically create topics via `NewTopic` be
 
 ---
 
+## 🔌 Multi-Binder Portability (Kafka vs. RabbitMQ)
+
+One of the greatest advantages of using **Spring Cloud Stream** is binder abstraction. Because the Java codebase contains zero broker-specific dependencies or code, you can switch the underlying message broker at runtime purely through configuration.
+
+We have configured `orderServiceFunctions` to support both **Apache Kafka** and **RabbitMQ** using Spring Boot Profiles:
+
+### 1. The Configuration Files
+- [application.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/spring-cloud-stream/orderServiceFunctions/src/main/resources/application.properties): Contains common, broker-agnostic settings (application name, scan paths, function definitions).
+- [application-kafka.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/spring-cloud-stream/orderServiceFunctions/src/main/resources/application-kafka.properties): Active when using `-Dspring.profiles.active=kafka` (default). Configures Kafka brokers, manual offsets (`MANUAL`), and partition counting.
+- [application-rabbitmq.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/spring-cloud-stream/orderServiceFunctions/src/main/resources/application-rabbitmq.properties): Active when using `-Dspring.profiles.active=rabbitmq`. Configures RabbitMQ connection details, automatic acknowledgments (`AUTO`), and binds DLQ/DLX exchanges.
+
+### 2. Running with Apache Kafka
+Make sure your Kafka cluster is up (`docker-compose -f doc/docker-compose.yaml up -d`), then run:
+```bash
+mvn spring-boot:run -pl spring-cloud-stream/orderServiceFunctions -Dspring-boot.run.arguments="--spring.profiles.active=kafka"
+```
+
+### 3. Running with RabbitMQ
+Start the local RabbitMQ broker:
+```bash
+docker-compose -f doc/docker-compose-rabbitmq.yaml up -d
+```
+Then run the application:
+```bash
+mvn spring-boot:run -pl spring-cloud-stream/orderServiceFunctions -Dspring-boot.run.arguments="--spring.profiles.active=rabbitmq"
+```
+The RabbitMQ binder will automatically provision the necessary topic exchanges (`orders.v1`), queues (`orders.v1.order-processors`), and dead-letter routing headers on startup without writing a single line of Java code.
+
+---
+
 ## 🛠 Infrastructure Requirements
 
-This module requires the 3-node Kafka cluster defined in the root directory.
+Depending on the active profile, this module requires:
 
-- **Main Topic**: `orders.v1` (3 partitions, 3 replicas)
-- **Error Topic**: `orders.v1.DLT`
-- **Consumer Group**: `order-processors`
+*   **Kafka Mode**: The 3-node Kafka cluster defined in [docker-compose.yaml](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/doc/docker-compose.yaml).
+*   **RabbitMQ Mode**: The RabbitMQ container (AMQP on port `5672`, Management UI on `15672`) defined in [docker-compose-rabbitmq.yaml](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/doc/docker-compose-rabbitmq.yaml).
