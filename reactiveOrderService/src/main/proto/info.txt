@@ -1,0 +1,4 @@
+mvn clean compile
+Go to IntelliJ:
+Right-click target/generated-sources/protobuf/java
+Choose Mark Directory as → Generated Sources Root

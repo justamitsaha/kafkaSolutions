@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+option java_package = "com.saha.amit.reactiveOrderService.proto";
+option java_outer_classname = "OrderEventProto";
+option java_multiple_files = true;
+
+message OrderEventMessage {
+  string event_id = 1;
+  string order_id = 2;
+  string customer_id = 3;
+  string status = 4;
+  double amount = 5;
+  int64 timestamp = 6;
+}
