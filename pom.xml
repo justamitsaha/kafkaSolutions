@@ -12,6 +12,7 @@
         <module>spring-cloud-stream/orderServiceFunctions</module>
         <module>spring-cloud-stream/orderServiceFunctionsSaga</module>
         <module>functionsSample</module>
+        <module>reactiveOrderService</module>
     </modules>
 
     <properties>

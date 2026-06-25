@@ -1,7 +1,7 @@
 #!/bin/bash
 
-BROKER="192.168.0.143:9092"   # use any one broker for bootstrap
-REPLICATION=3
+BROKER="kafka1:19092"   # Bootstrap via internal listener inside the container
+REPLICATION=1           # Set replication to 1 for single-broker compatibility
 PARTITIONS=3
 
 # ========== Order Events ==========

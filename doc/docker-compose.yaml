@@ -1,3 +1,28 @@
+# ==============================================================================
+# KAFKA TOPICS DOCUMENTATION
+# ==============================================================================
+# When this Kafka cluster is running, the following topics need to be created:
+#
+# A. For orderServiceFunctions & orderServiceFunctionsSaga:
+#    1. orders.v1          (Partitions: 3, Replication Factor: 3)
+#    2. orders.v1.DLT      (Partitions: 3, Replication Factor: 3)
+#    3. payments.v1        (Partitions: 3, Replication Factor: 3)
+#
+# B. For reactiveOrderService:
+#    4. order.events       (Partitions: 3, Replication Factor: 3)
+#    5. order.events.retry (Partitions: 3, Replication Factor: 3)
+#    6. order.events.dlt   (Partitions: 3, Replication Factor: 3)
+#    7. order.events.proto (Partitions: 3, Replication Factor: 3)
+#
+# ------------------------------------------------------------------------------
+# TOPIC CREATION COMMANDS:
+# ------------------------------------------------------------------------------
+# You can use the helper scripts at /doc/kafka.sh or /reactiveOrderService/src/main/resources/kafka.sh,
+# or execute these commands manually:
+#
+
+# ==============================================================================
+
 version: '3.8'
 
 services:

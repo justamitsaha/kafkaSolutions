@@ -1,4 +1,4 @@
-﻿# Reactive Kafka Order Service
+# Reactive Kafka Order Service
 
 Reactive Spring Boot service that accepts HTTP order requests, persists them via the transactional outbox pattern, and publishes events to Kafka using Reactor Kafka with retry and dead-letter safeguards.
 
@@ -78,8 +78,11 @@ Key properties in `src/main/resources/application.properties`:
 ---
 
 ## Running the Application
-```
-# Start Kafka, Schema Registry, and dependencies
+
+To run the application locally (it runs completely standalone without any external microservice registry or cloud configuration servers):
+
+```bash
+# Start local Kafka, Schema Registry, and Postgres dependencies
 cd protobuff
 docker compose up -d
 ./create-topics.sh
@@ -87,10 +90,13 @@ docker compose up -d
 # Back to the project root
 cd ..
 
-# Build and run (Reactive Spring Boot)
+# Build and run the service
 mvn clean spring-boot:run
+```
 
-# Optional: enable Prometheus scrape
+### Verification
+```bash
+# Optional: verify Prometheus scrape endpoint
 curl http://localhost:8080/actuator/prometheus
 ```
 

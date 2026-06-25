@@ -7,7 +7,7 @@ CLIENT_BROKER="${CLIENT_BROKER:-kafka1:19092}"
 create_topic() {
   local topic="$1"
   local partitions="${2:-3}"
-  local replication="${3:-3}"
+  local replication="${3:-1}"
 
   docker exec -it kafka1 kafka-topics \
     --create \
@@ -20,9 +20,9 @@ create_topic() {
 case "${1:-help}" in
   topic-create)
     create_topic "order.events"
-    create_topic "order.events.retry" 3 3
-    create_topic "order.events.dlt" 3 3
-    create_topic "order.events.proto" 3 3
+    create_topic "order.events.retry" 3 1
+    create_topic "order.events.dlt" 3 1
+    create_topic "order.events.proto" 3 1
     ;;
   topic-list)
     docker exec -it kafka1 kafka-topics --list --bootstrap-server "${BROKER}"

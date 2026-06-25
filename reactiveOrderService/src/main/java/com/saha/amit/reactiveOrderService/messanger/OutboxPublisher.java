@@ -11,7 +11,6 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,7 +22,6 @@ import java.time.Instant;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@RefreshScope
 public class OutboxPublisher {
 
     private final OrderOutboxRepository outboxRepository;
@@ -49,7 +47,7 @@ public class OutboxPublisher {
     public void start() {
         log.info("Starting OutboxPublisher with pollInterval={} batchSize={}", pollInterval, batchSize);
         subscription = Flux.interval(Duration.ZERO, pollInterval)
-                .flatMap(tick -> publishPendingRecords())
+                .concatMap(tick -> publishPendingRecords())
                 .onErrorContinue((ex, record) -> log.error("Outbox dispatch errored: {}", ex.getMessage()))
                 .subscribe();
     }
