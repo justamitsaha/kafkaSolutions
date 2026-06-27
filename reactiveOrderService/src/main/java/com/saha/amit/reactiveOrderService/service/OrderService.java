@@ -17,12 +17,17 @@ public class OrderService {
     private final OutboxService outboxService;
     private final OrderRepository orderRepository;
 
+    /**
+     * Checks for valid event ands passes control to OutboxService to persist the order and outbox event in a single transaction.
+     * @param customerId
+     * @param amount
+     * @return
+     */
     public Mono<OrderEvent> placeOrder(String customerId, Double amount) {
         if (amount == null || amount <= 0) {
             log.error("Invalid amount provided: {}", amount);
             return Mono.error(new IllegalArgumentException("Amount must be greater than zero"));
         }
-
         return outboxService.persistOrderAndOutbox(customerId, amount)
                 .doOnSuccess(event -> log.info("Order {} persisted in Outbox tables and queued for publishing via outbox", event.orderId()));
     }

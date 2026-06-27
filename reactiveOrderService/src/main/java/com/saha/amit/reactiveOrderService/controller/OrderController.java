@@ -31,17 +31,14 @@ public class OrderController {
 
     @PostMapping
     public Mono<OrderResponse> placeOrder(@RequestBody OrderRequest req) {
-        logger.info("Received order placement request: {}", req);
         req.setAmount(req.getAmount() - (req.getAmount() * Integer.parseInt(discountPercentage) / 100));
-        logger.info("Applied discount of {}%, new amount: {}", discountPercentage, req.getAmount());
+        logger.info("For request: {} applied discount of : {}", req, discountPercentage);
         // Simulate order processing and response
         return orderService.placeOrder(req.getCustomerId(), req.getAmount())
-                .map(event -> new OrderResponse(
-                        event.orderId(),
+                .map(event -> new OrderResponse(event.orderId(),
                         event.customerId(),
                         event.amount(),
-                        event.status()
-                ));
+                        event.status()));
     }
 
     @PostMapping("/outbox/publish")

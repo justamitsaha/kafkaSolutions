@@ -27,22 +27,28 @@ public class OutboxService {
     private final ObjectMapper objectMapper;
     private final CustomOrderRepositoryImpl customOrderRepository;
 
+
+    /**
+     * This method uses TransactionalOperator to persist data in outbox and order table an event is also created and returned to the caller.
+     * Same event is serialized and persisted in outbox table for further processing by outbox publisher.
+     * @param customerId
+     * @param amount
+     * @return
+     */
     public Mono<OrderEvent> persistOrderAndOutbox(String customerId, Double amount) {
         String orderId = UUID.randomUUID().toString();
         OrderEvent event = OrderEvent.create(orderId, customerId, amount, "PLACED");
 
-        OrderEntity order = new OrderEntity();
-        order.setOrderId(orderId);
-        order.setCustomerId(customerId);
-        order.setAmount(amount);
-        order.setStatus(event.status());
-        order.setCreatedAt(Instant.now().toEpochMilli());
+        OrderEntity order = new OrderEntity(orderId, customerId, amount, event.status());
 
-//        return transactionalOperator.transactional(
-//                orderRepository.insert(order)
-//                        .then(outboxRepository.insert(buildOutboxEntity(orderId, event)))
-//                        .doOnSuccess(ignored -> log.info("Order {} persisted and added to outbox", orderId))
-//        ).thenReturn(event);
+        /*Since we are creating uuid and not using auto increment ReactiveCrudRepository will think it's a update
+        and fail hence we have o use custom insert like below.
+        If you want to use ReactiveCrudRepository then you can use auto increment id and let db generate it.
+        return transactionalOperator.transactional(
+                orderRepository.save(order)
+                        .then(outboxRepository.save(buildOutboxEntity(orderId, event)))
+                        .doOnSuccess(ignored -> log.info("Order {} persisted and added to outbox", orderId))
+        ).thenReturn(event);*/
 
         return transactionalOperator.transactional(
                 customOrderRepository.insertOrder(order)
@@ -53,6 +59,12 @@ public class OutboxService {
         ).thenReturn(event);
     }
 
+    /**
+     * This generates OutboxEntity from OrderEvent and aggregateId. It serializes the event to json and persists in outbox table.
+     * @param aggregateId
+     * @param event
+     * @return
+     */
     private OrderOutboxEntity buildOutboxEntity(String aggregateId, OrderEvent event) {
         try {
             String payload = objectMapper.writeValueAsString(event);

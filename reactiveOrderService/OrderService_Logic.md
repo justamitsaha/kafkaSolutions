@@ -375,7 +375,7 @@ Rather than relying on auto-commit, which commits offsets asynchronously and can
 
 ### 2. Transactional Outbox Pattern
 Ensures data consistency between database and message broker:
-1.  **Atomic Transaction**: DB state change + Event generation occur in one transaction.
+1.  **Atomic Transaction**: DB state change + Event generation occur in one transaction. Using `org.springframework.transaction.reactive.TransactionalOperator`, the service guarantees that either both the order and outbox record are persisted, or neither is. The Event is just returned as response at this point, without being sent to Kafka yet. Same event is stored in the outbox table as a JSON in column 'payload'. And will be later picked up by the background poller for Kafka publishing.
 2.  **Asynchronous Dispatch**: A poller publishes these events to Kafka. If Kafka is down, the database state is unaffected and the poller will retry until Kafka becomes available.
 
 ### 3. Non-blocking Exponential Backoff Retry Topics
