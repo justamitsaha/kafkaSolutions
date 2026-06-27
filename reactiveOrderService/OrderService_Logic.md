@@ -121,6 +121,38 @@ The following properties configured in [application.properties](file:///C:/Amit/
 
 ---
 
+## 🔀 Serialization Formats: JSON vs. Protobuf
+
+The service supports two modes of message serialization on Kafka, toggled by the `order.use-protobuf` setting.
+
+### Comparison: JSON vs. Protobuf Mode
+
+| Feature | JSON Mode (`order.use-protobuf=false`) | Protobuf Mode (`order.use-protobuf=true`) |
+| :--- | :--- | :--- |
+| **Topic** | `order.events` | `order.events.proto` |
+| **Payload Structure** | Plaintext ASCII/UTF-8 JSON string. | Binary serialization format. |
+| **Schema Enforcement** | Loose. The schema is implicit in Java classes; changes require careful coordination but aren't strictly blocked. | Strict. Schema is defined in `order_event.proto` and validated against a schema schema registered with **Confluent Schema Registry**. |
+| **Payload Size** | Larger. The keys/field names (e.g. `"eventId"`, `"orderId"`) are repeated in every message text, increasing bandwidth consumption. | Highly compact. Field names are replaced by integer tags, and values are packed into a dense binary layout. |
+| **CPU Overhead** | Higher serialization and deserialization CPU cost due to text parsing via Jackson. | Lower CPU overhead due to efficient binary serialization. |
+| **Schema Registry** | Not required. | **Required** (configured via `app.kafka.schema-registry-url` at `http://localhost:8081`). |
+| **Internal Mapper** | Publishes the domain `OrderEvent` directly. | Maps `OrderEvent` to the compiled protobuf class `OrderEventMessage` via `OrderEventProtoMapper`. |
+
+### Architectural Flow Differences
+
+1. **JSON Serialization Flow**:
+   - The background worker `OutboxPublisher` fetches the outbox record, deserializes the JSON database payload back to `OrderEvent`, and passes it to `OrderEventPublisher`.
+   - `OrderEventPublisher` uses `jsonKafkaSender` with a custom inline serializer `(topic, data) -> serializeEvent(...)` that writes JSON bytes.
+   - The consumer `OrderEventConsumer` subscribes to the main topic `order.events` and retry topic `order.events.retry`, deserializing using Jackson.
+
+2. **Protobuf Serialization Flow**:
+   - The background worker `OutboxPublisher` fetches the outbox record, deserializes the JSON database payload, and passes it to `OrderEventPublisher` with the `useProtobuf` flag set to `true`.
+   - `OrderEventPublisher` maps the event to `OrderEventMessage` (compiled Protobuf class) using `OrderEventProtoMapper.toProto(event)`.
+   - The message is published to `order.events.proto` using `protobufKafkaSender` configured with `KafkaProtobufSerializer`.
+   - The serializer registers the schema (`order_event.proto`) dynamically with the Schema Registry (on port `8081`).
+   - The consumer `OrderEventConsumer` subscribes to the protobuf topic `order.events.proto` using `protobufKafkaReceiver` configured with `KafkaProtobufDeserializer` and the target Specific Record class `OrderEventMessage`.
+
+---
+
 ## 🗄️ Database Schema & Role Mapping
 
 The transactional outbox relies on the schema declared in [schema.sql](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/resources/schema.sql). 

@@ -43,6 +43,15 @@ public class OrderEventConsumer {
     private Disposable retrySubscription;
     private Disposable protoSubscription;
 
+    /**
+     * Initializes the consumer with the main JSON receiver, retry receiver, protobuf receiver, DLT publisher, retry publisher, and meter registry.
+     * @param kafkaReceiver
+     * @param retryKafkaReceiver
+     * @param protobufKafkaReceiver
+     * @param dltPublisher
+     * @param retryEventPublisher
+     * @param meterRegistry
+     */
     public OrderEventConsumer(@Qualifier("jsonKafkaReceiver")KafkaReceiver<String, OrderEvent> kafkaReceiver,
                               @Qualifier("retryKafkaReceiver")KafkaReceiver<String, OrderEvent> retryKafkaReceiver,
                               @Qualifier("protobufKafkaReceiver")KafkaReceiver<String, com.saha.amit.reactiveOrderService.proto.OrderEventMessage> protobufKafkaReceiver,
@@ -57,6 +66,9 @@ public class OrderEventConsumer {
         this.meterRegistry = meterRegistry;
     }
 
+    /**
+     * Subscribes to the appropriate Kafka topics (JSON or Protobuf main topics, and retry topic) upon application startup.
+     */
     @PostConstruct
     public void start() {
         log.info("Starting OrderEventConsumer with maxAttempts={}, useProtobuf={}", maxAttempts, useProtobuf);
@@ -68,6 +80,9 @@ public class OrderEventConsumer {
         this.retrySubscription = subscribe(retryKafkaReceiver, true);
     }
 
+    /**
+     * Disposes active Kafka subscriptions and resource handles on application shutdown.
+     */
     @PreDestroy
     public void shutdown() {
         if (mainSubscription != null) mainSubscription.dispose();
@@ -75,6 +90,12 @@ public class OrderEventConsumer {
         if (protoSubscription != null) protoSubscription.dispose();
     }
 
+    /**
+     * Helper subscription template to receive and process messages from JSON-based topics.
+     * @param receiver
+     * @param isRetryTopic
+     * @return
+     */
     private Disposable subscribe(KafkaReceiver<String, OrderEvent> receiver, boolean isRetryTopic) {
         return receiver.receive()
                 .concatMap(record -> processRecord(record, isRetryTopic).thenReturn(record))
@@ -83,6 +104,11 @@ public class OrderEventConsumer {
                 .subscribe();
     }
 
+    /**
+     * Helper subscription template to receive and process messages from Protobuf-based topics.
+     * @param receiver
+     * @return
+     */
     private Disposable subscribeProto(KafkaReceiver<String, com.saha.amit.reactiveOrderService.proto.OrderEventMessage> receiver) {
         return receiver.receive()
                 .concatMap(record -> {
@@ -96,6 +122,12 @@ public class OrderEventConsumer {
                 .subscribe();
     }
 
+    /**
+     * Processes an individual Kafka record, invokes business logic, updates metrics, logs status, and manages failover/retries.
+     * @param record
+     * @param isRetryTopic
+     * @return
+     */
     private Mono<Void> processRecord(ReceiverRecord<String, OrderEvent> record, boolean isRetryTopic) {
         OrderEvent event = record.value();
         int attempt = resolveAttempt(record, isRetryTopic);
@@ -110,6 +142,11 @@ public class OrderEventConsumer {
                 .then(Mono.fromRunnable(record.receiverOffset()::acknowledge));
     }
 
+    /**
+     * Executes local business logic checks and validations on the deserialized domain order event.
+     * @param event
+     * @return
+     */
     private Mono<Void> handleBusinessLogic(OrderEvent event) {
         return Mono.defer(() -> {
             if (event.amount() == null || event.amount() <= 0) {
@@ -120,6 +157,14 @@ public class OrderEventConsumer {
         });
     }
 
+    /**
+     * Handles failures during event processing by routing to the retry topic or dead-letter topic depending on the attempt count.
+     * @param record
+     * @param event
+     * @param attempt
+     * @param ex
+     * @return
+     */
     private Mono<Void> handleFailure(ReceiverRecord<String, OrderEvent> record,
                                      OrderEvent event,
                                      int attempt,
@@ -141,6 +186,12 @@ public class OrderEventConsumer {
         return retryEventPublisher.scheduleRetry(event, attempt);
     }
 
+    /**
+     * Resolves the current attempt index for the record by inspecting the Kafka headers.
+     * @param record
+     * @param isRetryTopic
+     * @return
+     */
     private int resolveAttempt(ReceiverRecord<String, OrderEvent> record, boolean isRetryTopic) {
         if (!isRetryTopic) {
             return 0;

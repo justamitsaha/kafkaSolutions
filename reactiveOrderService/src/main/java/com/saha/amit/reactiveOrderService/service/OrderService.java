@@ -32,14 +32,28 @@ public class OrderService {
                 .doOnSuccess(event -> log.info("Order {} persisted in Outbox tables and queued for publishing via outbox", event.orderId()));
     }
 
+    /**
+     * Retrieves an order entity by its unique order identifier.
+     * @param orderId
+     * @return
+     */
     public Mono<OrderEntity> getOrderById(String orderId) {
         return orderRepository.findById(orderId);
     }
 
+    /**
+     * Retrieves all order entities stored in the system.
+     * @return
+     */
     public Flux<OrderEntity> getAllOrders() {
         return orderRepository.findAll();
     }
 
+    /**
+     * Retrieves all order entities associated with a specific customer identifier.
+     * @param customerId
+     * @return
+     */
     public Flux<OrderEntity> getOrdersByCustomer(String customerId) {
         log.info("Inside getOrdersByCustomer for customerId: {}", customerId);
         return orderRepository.findByCustomerId(customerId);

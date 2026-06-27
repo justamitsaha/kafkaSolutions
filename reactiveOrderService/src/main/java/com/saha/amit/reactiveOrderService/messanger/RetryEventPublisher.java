@@ -30,6 +30,12 @@ public class RetryEventPublisher {
     @Value("${app.kafka.retry.max-attempts:3}")
     private int maxAttempts;
 
+    /**
+     * Schedules a deferred retry publish to the retry Kafka topic with backoff, updating registry counters.
+     * @param event
+     * @param currentAttempt
+     * @return
+     */
     public Mono<Void> scheduleRetry(OrderEvent event, int currentAttempt) {
         if (currentAttempt >= maxAttempts) {
             log.warn("Max retry attempts reached for eventId={}", event.eventId());
@@ -58,12 +64,23 @@ public class RetryEventPublisher {
                 .then();
     }
 
+    /**
+     * Constructs a ProducerRecord with a custom header representing the current retry attempt index.
+     * @param event
+     * @param attempt
+     * @return
+     */
     private ProducerRecord<String, OrderEvent> createRetryRecord(OrderEvent event, int attempt) {
         ProducerRecord<String, OrderEvent> record = new ProducerRecord<>(retryTopic, event.eventId(), event);
         record.headers().add(RETRY_ATTEMPT_HEADER, String.valueOf(attempt).getBytes());
         return record;
     }
 
+    /**
+     * Calculates exponential backoff duration based on the current attempt index (capped at 60 seconds).
+     * @param attempt
+     * @return
+     */
     private Duration calculateBackoff(int attempt) {
         long delaySeconds = (long) Math.min(60, Math.pow(2, attempt));
         return Duration.ofSeconds(delaySeconds);

@@ -16,6 +16,12 @@ public class CustomOrderRepositoryImpl implements CustomOrderRepository {
 
     private final DatabaseClient databaseClient;
 
+    /**
+     * Executes a raw SQL INSERT to save a new OrderEntity to the orders table.
+     * This avoids R2DBC's auto-save update check for manually-assigned UUID primary keys.
+     * @param order
+     * @return
+     */
     @Override
     public Mono<OrderEntity> insertOrder(OrderEntity order) {
         String sql = """
@@ -40,6 +46,12 @@ public class CustomOrderRepositoryImpl implements CustomOrderRepository {
                 .thenReturn(order);
     }
 
+    /**
+     * Executes a raw SQL INSERT to save a new OrderOutboxEntity to the order_outbox table.
+     * Maps the status enum to string and handles nullable error messages.
+     * @param outbox
+     * @return
+     */
     @Override
     public Mono<OrderOutboxEntity> insertOutbox(OrderOutboxEntity outbox) {
         String sql = """

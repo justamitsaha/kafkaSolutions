@@ -7,6 +7,11 @@ public final class OrderEventProtoMapper {
     private OrderEventProtoMapper() {
     }
 
+    /**
+     * Converts a domain OrderEvent record into its corresponding compiled Protobuf OrderEventMessage.
+     * @param event
+     * @return
+     */
     public static OrderEventMessage toProto(OrderEvent event) {
         return OrderEventMessage.newBuilder()
                 .setEventId(nullSafe(event.eventId()))
@@ -18,6 +23,11 @@ public final class OrderEventProtoMapper {
                 .build();
     }
 
+    /**
+     * Converts a Protobuf OrderEventMessage into its corresponding domain OrderEvent record.
+     * @param message
+     * @return
+     */
     public static OrderEvent fromProto(OrderEventMessage message) {
         return new OrderEvent(
                 emptyToNull(message.getEventId()),
@@ -29,10 +39,20 @@ public final class OrderEventProtoMapper {
         );
     }
 
+    /**
+     * Helper to return an empty string if the input value is null.
+     * @param value
+     * @return
+     */
     private static String nullSafe(String value) {
         return value == null ? "" : value;
     }
 
+    /**
+     * Helper to return null if the input string is empty.
+     * @param value
+     * @return
+     */
     private static String emptyToNull(String value) {
         return value.isEmpty() ? null : value;
     }

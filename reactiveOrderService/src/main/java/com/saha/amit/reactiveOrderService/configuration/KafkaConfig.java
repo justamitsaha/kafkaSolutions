@@ -190,6 +190,10 @@ public class KafkaConfig {
         return props;
     }
 
+    /**
+     * Applies security credentials and SASL configuration for Confluent Cloud connection if the 'confluent' profile is active.
+     * @param props
+     */
     private void applyConfluentSecurityIfNeeded(Map<String, Object> props) {
         if (env.acceptsProfiles(Profiles.of("confluent"))) {
             log.info("Applying Confluent Cloud security configurations to Kafka properties");

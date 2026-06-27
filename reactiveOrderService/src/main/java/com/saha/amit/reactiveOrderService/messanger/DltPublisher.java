@@ -26,6 +26,16 @@ public class DltPublisher {
     @Value("${app.kafka.topic.order.dlt}")
     private String dltTopic;
 
+    /**
+     * Serializes and publishes the failed order event payload to the dead-letter topic (DLT) with custom diagnostic headers.
+     * @param event
+     * @param failureType
+     * @param reason
+     * @param sourceTopic
+     * @param partition
+     * @param offset
+     * @return
+     */
     public Mono<Void> sendToDlt(OrderEvent event,
                                 String failureType,
                                 String reason,
@@ -39,6 +49,17 @@ public class DltPublisher {
                 .then();
     }
 
+    /**
+     * Constructs a Kafka SenderRecord containing the serialized event and diagnostic headers for routing to the DLT.
+     * @param event
+     * @param payload
+     * @param failureType
+     * @param reason
+     * @param sourceTopic
+     * @param partition
+     * @param offset
+     * @return
+     */
     private SenderRecord<String, byte[], String> buildSenderRecord(OrderEvent event,
                                                                    byte[] payload,
                                                                    String failureType,
@@ -56,10 +77,19 @@ public class DltPublisher {
         return SenderRecord.create(record, event.eventId());
     }
 
+    /**
+     * Encodes a string value to a byte array representation for Kafka headers.
+     * @param value
+     * @return
+     */
     private byte[] encode(String value) {
         return value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * Logs the outcome of sending the event to the DLT.
+     * @param result
+     */
     private void logResult(SenderResult<String> result) {
         if (result.exception() == null) {
             log.warn("EventId={} routed to DLT topic={}", result.correlationMetadata(), dltTopic);

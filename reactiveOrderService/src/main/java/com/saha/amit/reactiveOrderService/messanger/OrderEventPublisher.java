@@ -35,6 +35,13 @@ public class OrderEventPublisher {
     @Value("${app.kafka.topic.order.proto}")
     private String orderProtoTopic;
 
+    /**
+     * Initializes the publisher with JSON and Protobuf Kafka senders, the DLT publisher, and registers success/failure metric counters.
+     * @param jsonKafkaSender
+     * @param protobufKafkaSender
+     * @param dltPublisher
+     * @param meterRegistry
+     */
     public OrderEventPublisher(
             @Qualifier("jsonKafkaSender") KafkaSender<String, OrderEvent> jsonKafkaSender,
             @Qualifier("protobufKafkaSender") KafkaSender<String, OrderEventMessage> protobufKafkaSender,
@@ -63,6 +70,11 @@ public class OrderEventPublisher {
         }
     }
 
+    /**
+     * Publishes the order event payload serialized in JSON format to the orders event topic.
+     * @param event
+     * @return
+     */
     private Mono<Void> publishAsJson(OrderEvent event) {
         SenderRecord<String, OrderEvent, OrderEvent> record =
                 SenderRecord.create(new ProducerRecord<>(orderTopic, event.eventId(), event), event);
@@ -78,6 +90,11 @@ public class OrderEventPublisher {
                 .then();
     }
 
+    /**
+     * Maps the order event to a Protobuf message and publishes it to the orders protobuf topic.
+     * @param event
+     * @return
+     */
     private Mono<Void> publishAsProtobuf(OrderEvent event) {
         OrderEventMessage message = OrderEventProtoMapper.toProto(event);
         log.info("Publishing event as Protobuf to topic {}: {}", orderProtoTopic, message);
@@ -95,6 +112,11 @@ public class OrderEventPublisher {
                 .then();
     }
 
+    /**
+     * Handles the asynchronous Kafka result for JSON publication, logging status and updating performance metrics.
+     * @param result
+     * @return
+     */
     private Mono<Void> handleJsonResult(SenderResult<OrderEvent> result) {
         if (result.exception() == null) {
             successCounter.increment();
@@ -109,6 +131,11 @@ public class OrderEventPublisher {
         }
     }
 
+    /**
+     * Handles the asynchronous Kafka result for Protobuf publication, logging status and updating performance metrics.
+     * @param result
+     * @return
+     */
     private Mono<Void> handleProtobufResult(SenderResult<OrderEventMessage> result) {
         if (result.exception() == null) {
             successCounter.increment();

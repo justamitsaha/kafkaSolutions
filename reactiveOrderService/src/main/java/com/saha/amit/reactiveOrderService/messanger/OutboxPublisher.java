@@ -43,6 +43,9 @@ public class OutboxPublisher {
     @Value("${order.use-protobuf:false}")
     private boolean useProtobuf;
 
+    /**
+     * Initializes the background outbox polling subscription upon startup.
+     */
     @PostConstruct
     public void start() {
         log.info("Starting OutboxPublisher with pollInterval={} batchSize={}", pollInterval, batchSize);
@@ -52,6 +55,10 @@ public class OutboxPublisher {
                 .subscribe();
     }
 
+    /**
+     * Periodically queries the database for pending outbox events and triggers their Kafka publication.
+     * @return
+     */
     public Mono<Void> publishPendingRecords() {
         return outboxRepository.findNextBatch(batchSize)
                 .collectList()
@@ -66,6 +73,9 @@ public class OutboxPublisher {
                 .then();
     }
 
+    /**
+     * Disposes the background poll subscription on application shutdown.
+     */
     @PreDestroy
     public void stop() {
         if (subscription != null) {
@@ -73,6 +83,11 @@ public class OutboxPublisher {
         }
     }
 
+    /**
+     * Publishes a single outbox database record to Kafka and updates its status accordingly.
+     * @param entity
+     * @return
+     */
     private Mono<Void> publishOutboxRecord(OrderOutboxEntity entity) {
         return Mono.defer(() -> {
             OrderEvent event = deserialize(entity);
@@ -90,6 +105,11 @@ public class OutboxPublisher {
         });
     }
 
+    /**
+     * Helper method to deserialize the JSON outbox payload back to a domain OrderEvent object.
+     * @param entity
+     * @return
+     */
     private OrderEvent deserialize(OrderOutboxEntity entity) {
         try {
             return objectMapper.readValue(entity.getPayload(), OrderEvent.class);
@@ -98,6 +118,13 @@ public class OutboxPublisher {
         }
     }
 
+    /**
+     * Updates the status, last error, and attempt count of the outbox record in the database.
+     * @param entity
+     * @param status
+     * @param lastError
+     * @return
+     */
     private Mono<Void> updateStatus(OrderOutboxEntity entity, OutboxStatus status, String lastError) {
         entity.setStatus(status);
         entity.setLastError(lastError);
@@ -106,6 +133,12 @@ public class OutboxPublisher {
         return outboxRepository.save(entity).then();
     }
 
+    /**
+     * Schedules the next retry interval or marks the outbox entity as permanently failed if retry count is exhausted.
+     * @param entity
+     * @param ex
+     * @return
+     */
     private Mono<Void> updateForRetry(OrderOutboxEntity entity, Throwable ex) {
         entity.setAttempts(entity.getAttempts() + 1);
         entity.setLastError(ex.getMessage());
