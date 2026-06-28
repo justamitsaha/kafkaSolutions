@@ -2,8 +2,9 @@ package com.saha.amit.reactiveOrderService.messanger;
 
 import com.saha.amit.reactiveOrderService.events.OrderEvent;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -68,8 +69,10 @@ public class OrderEventConsumer {
 
     /**
      * Subscribes to the appropriate Kafka topics (JSON or Protobuf main topics, and retry topic) upon application startup.
+     * Note: We use ApplicationReadyEvent instead of @PostConstruct to prevent background threads from starting
+     * and requesting bean factory singletons before context initialization completes.
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void start() {
         log.info("Starting OrderEventConsumer with maxAttempts={}, useProtobuf={}", maxAttempts, useProtobuf);
         if (useProtobuf) {

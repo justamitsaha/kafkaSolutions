@@ -68,8 +68,6 @@ sequenceDiagram
     Consumer->>DltTopic: Route message to DLT (with failure headers)
 ```
 
-![Flow Diagram](./Flow_diagram.png)
-
 ### 1. The Write Path (Atomic Persistence)
 *   **Key Class:** [OutboxService.java](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/java/com/saha/amit/reactiveOrderService/service/OutboxService.java)
 *   **Method:** `persistOrderAndOutbox(String customerId, Double amount)`
@@ -89,6 +87,10 @@ sequenceDiagram
     For each record, it deserializes the payload, sends it to Kafka through the idempotent `jsonKafkaSender`, and transitions the record status:
     *   **Success**: Sets `status = PUBLISHED`.
     *   **Failure**: Increments `attempts`. If `attempts >= maxAttempts`, updates status to `FAILED` and delays the next visibility by 1 hour. If under limits, calculates exponential backoff (`2^attempts` seconds), schedules `available_at` in the future, and flags as `FAILED`.
+
+> [!TIP]
+> **Manual Outbox Control in Dev/Testing:**
+> To easily inspect the outbox table and verify state changes, the scheduler interval `app.kafka.outbox.poll-interval` can be configured to a very large duration (e.g., `PT1H` or 1 hour). This halts automated sweeps and lets you inspect outbox records in their initial `PENDING` state. To publish them manually, trigger the `POST /orders/outbox/publish` endpoint.
 
 ### 3. The Consumer Path (Retry & DLT Orchestration)
 *   **Key Class:** [OrderEventConsumer.java](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/java/com/saha/amit/reactiveOrderService/messanger/OrderEventConsumer.java)
@@ -113,7 +115,7 @@ The following properties configured in [application.properties](file:///C:/Amit/
 | `app.kafka.topic.order.dlt` | `order.events.dlt` | Dead-letter topic for exhausted retry events. |
 | `app.kafka.topic.order.proto` | `order.events.proto` | Topic used when running in Protobuf mode. |
 | `app.kafka.retry.max-attempts` | `3` | Max consumer retry limit before DLT. |
-| `app.kafka.outbox.poll-interval` | `PT1S` (1s) | DB poll interval frequency for the outbox worker. |
+| `app.kafka.outbox.poll-interval` | `PT1S` (1s) | DB poll interval frequency. Can be set to a large value (e.g. `PT1H` for 1 hour) during testing to allow manual outbox inspection. |
 | `app.kafka.outbox.batch-size` | `50` | Batch limit per outbox query. |
 | `app.kafka.outbox.max-attempts` | `5` | Max publisher retries for Kafka broker down scenarios. |
 | `order.use-protobuf` | `false` | Enables Protobuf serialization and disables JSON. |
@@ -150,6 +152,30 @@ The service supports two modes of message serialization on Kafka, toggled by the
    - The message is published to `order.events.proto` using `protobufKafkaSender` configured with `KafkaProtobufSerializer`.
    - The serializer registers the schema (`order_event.proto`) dynamically with the Schema Registry (on port `8081`).
    - The consumer `OrderEventConsumer` subscribes to the protobuf topic `order.events.proto` using `protobufKafkaReceiver` configured with `KafkaProtobufDeserializer` and the target Specific Record class `OrderEventMessage`.
+
+### How to Switch Between Formats
+
+To toggle the active serialization format in the application, do the following:
+
+#### 1. JSON Mode (Default Configuration)
+1. In [application.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/resources/application.properties), ensure the property is set to `false`:
+   ```properties
+   order.use-protobuf=false
+   ```
+2. Run standard Kafka (e.g. using `doc/docker-compose.yaml`).
+3. Restart the service.
+
+#### 2. Protobuf Mode
+1. Ensure a Schema Registry instance is running alongside your Kafka brokers:
+   ```bash
+   docker compose -f doc/docker-compose-kafka-schema-registry.yaml up -d
+   ```
+2. In [application.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/resources/application.properties), set:
+   ```properties
+   order.use-protobuf=true
+   ```
+   *(Alternatively, launch the application with the environment variable `ORDER_USE_PROTOBUF=true`)*.
+3. Restart the service. The service will automatically register the Protobuf schemas with the Schema Registry at `http://localhost:8081`.
 
 ---
 
@@ -197,47 +223,17 @@ Serves as the persistent event queue.
 Perform the following steps to verify database transaction atomicity, Kafka publishing, and consumer retry/DLQ behaviors.
 
 ### Step 1: Pre-requisites
-1.  **Start Kafka & Schema Registry** (using the standalone stack in detached mode):
+1.  **Start Kafka & Schema Registry** (using the standalone stack in detached mode): Run from the project root
     ```bash
-    # Run from the project root
     docker compose -f doc/docker-compose-kafka-schema-registry.yaml up -d
     ```
 2.  **Start PostgreSQL**: Ensure you have PostgreSQL running on port `5432` with database `aidb`, username `aiuser`, and password `aipass`.
 3.  **Run Schema DDL**: Execute the script at [schema.sql](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/resources/schema.sql) against your PostgreSQL database to construct the schema.
-4.  **Create Kafka Topics**: Pre-create the topics manually inside the running `kafka1` container:
+4.  **Verify Kafka Topics**: Verify if the required topics are present inside the running `kafka1` container:
     ```bash
-    # Create main events topic
-    docker exec -it kafka1 kafka-topics \
-      --create --if-not-exists \
-      --bootstrap-server kafka1:19092 \
-      --topic order.events \
-      --partitions 3 \
-      --replication-factor 1
-
-    # Create retry topic
-    docker exec -it kafka1 kafka-topics \
-      --create --if-not-exists \
-      --bootstrap-server kafka1:19092 \
-      --topic order.events.retry \
-      --partitions 3 \
-      --replication-factor 1
-
-    # Create dead-letter topic
-    docker exec -it kafka1 kafka-topics \
-      --create --if-not-exists \
-      --bootstrap-server kafka1:19092 \
-      --topic order.events.dlt \
-      --partitions 3 \
-      --replication-factor 1
-
-    # Create protobuf events topic
-    docker exec -it kafka1 kafka-topics \
-      --create --if-not-exists \
-      --bootstrap-server kafka1:19092 \
-      --topic order.events.proto \
-      --partitions 3 \
-      --replication-factor 1
+    docker exec -it kafka1 kafka-topics --list --bootstrap-server kafka1:19092
     ```
+    If the required topics (`order.events`, `order.events.retry`, `order.events.dlt`, `order.events.proto`) are not present, create them by running the commands from [kafka.sh](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/doc/kafka.sh).
 
 ### Step 2: Boot the Service
 Compile and run the Spring Boot application from the project root:
@@ -287,20 +283,31 @@ You can verify the flows manually with the following detailed steps:
         ```sql
         SELECT id, aggregate_id, status, attempts FROM microservice.order_outbox;
         ```
-        *   **Immediately after POST**: You may briefly catch the outbox row with `status='PENDING'` and `attempts=0`.
-        *   **After 1 second**: Once the background worker (`OutboxPublisher`) sweeps the database, the row `status` transitions to `'PUBLISHED'` and the `attempts` count increments to `1`.
-4.  **Verify Kafka Event**:
+        *   **Initially**: Since the automated scheduler is configured to poll at a very large interval (e.g. `PT1H` / 1 hour) in development to allow manual status change inspection, you will see the outbox row with `status='PENDING'` and `attempts=0`.
+4.  **Manually Trigger Outbox Dispatch**:
+    *   Trigger the outbox publisher manually by posting to the outbox publish endpoint:
+        ```bash
+        curl -X POST 'http://localhost:8080/orders/outbox/publish'
+        ```
+        *(Expected response: `{"message":"Outbox publishing triggered successfully"}`)*.
+    *   Re-run the database status query:
+        ```sql
+        SELECT id, aggregate_id, status, attempts FROM microservice.order_outbox;
+        ```
+        *(The row `status` will now have transitioned to `'PUBLISHED'` and the `attempts` count incremented to `1`)*.
+5.  **Verify Kafka Event**:
     *   Observe the monitor console consumer window running the `kafka-console-consumer`.
     *   A message matching the order payload will print as follows:
         ```json
         {"eventId":"[UUID]","orderId":"[UUID]","customerId":"8","amount":190.0,"status":"PLACED"}
         ```
-5.  **Verify Application logs**:
+6.  **Verify Application logs**:
     *   Look at the console log output of the running Spring Boot application. It will trace:
         *   `✅ Order [UUID] and Outbox [UUID] persisted successfully` (Atomic transaction committed)
+        *   `Manual outbox publish triggered via API`
         *   `🔍 Found 1 pending outbox records to publish`
         *   `Outbox record id=[UUID] published successfully`
-        *   `Processing order event for orderId=[UUID] customerId=CUST-100 amount=190.0` (Event consumed)
+        *   `Processing order event for orderId=[UUID] customerId=8 amount=190.0` (Event consumed)
 
 #### Path B: Ingest an Invalid Order (Atomic persistence validation check)
 1.  Submit an order with an invalid negative amount:
@@ -381,20 +388,27 @@ Since HTTP endpoints validate the values before hitting the database, we must pu
     ```properties
     order.use-protobuf=true
     ```
-2.  **Monitor the Protobuf topic**: Start a console consumer on the Protobuf topic:
+2.  **Monitor the Protobuf topic**: Start a schema-aware console consumer on the Protobuf topic to properly decode binary messages:
     ```bash
-    docker exec -it kafka1 kafka-console-consumer \
+    docker exec -it schema-registry kafka-protobuf-console-consumer \
       --bootstrap-server kafka1:19092 \
       --topic order.events.proto \
-      --from-beginning
+      --from-beginning \
+      --property schema.registry.url=http://localhost:8081
     ```
+    *(Note: Standard `kafka-console-consumer` on `order.events` will receive no events in Protobuf mode. If run directly on `order.events.proto`, it will output garbled binary payloads instead of readable json-like shapes).*
 3.  **Restart the service** and place a valid order:
     ```bash
     curl -X POST 'http://localhost:8080/orders' \
       -H 'Content-Type: application/json' \
       -d '{"customerId":"CUST-200", "amount":100.00}'
     ```
-4.  **Verify Serialization**:
+4.  **Manually Trigger Outbox Dispatch**:
+    *   Since the poll-interval is configured to a large value (e.g. 1 hour) in development, trigger the outbox publisher manually to send the message:
+        ```bash
+        curl -X POST 'http://localhost:8080/orders/outbox/publish'
+        ```
+5.  **Verify Serialization**:
     *   The service maps the order to a compiled Protobuf class using `OrderEventProtoMapper` and serializes it using `KafkaProtobufSerializer`.
     *   The message will be published to the `order.events.proto` topic, and the schema will register dynamically with the Schema Registry at `localhost:8081`.
 

@@ -19,9 +19,7 @@
 # Test-NetConnection -ComputerName localhost -Port 9092
 
 # List all active topics in the cluster (Wrapped for readability)
-docker exec -it kafka1 kafka-topics \
-  --list \
-  --bootstrap-server kafka1:19092
+  docker exec -it kafka1 kafka-topics --list --bootstrap-server kafka1:19092
 
 # Describe a specific topic (replace 'orders.v1' with the topic name)
 docker exec -it kafka1 kafka-topics \

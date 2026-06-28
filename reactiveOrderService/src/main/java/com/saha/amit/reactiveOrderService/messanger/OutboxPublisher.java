@@ -6,8 +6,9 @@ import com.saha.amit.reactiveOrderService.model.OrderOutboxEntity;
 import com.saha.amit.reactiveOrderService.model.OutboxStatus;
 import com.saha.amit.reactiveOrderService.repository.OrderOutboxRepository;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,8 +46,10 @@ public class OutboxPublisher {
 
     /**
      * Initializes the background outbox polling subscription upon startup.
+     * Note: We use ApplicationReadyEvent instead of @PostConstruct to prevent background threads from starting
+     * and requesting bean factory singletons before context initialization completes.
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void start() {
         log.info("Starting OutboxPublisher with pollInterval={} batchSize={}", pollInterval, batchSize);
         subscription = Flux.interval(Duration.ZERO, pollInterval)
