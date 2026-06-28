@@ -14,7 +14,6 @@ Reactive Spring Boot service that accepts HTTP order requests, persists them via
 - `repository`: Reactive repositories for orders and the outbox queue.
 - `service`: Business services (`OrderService`, `OutboxService`) coordinating persistence and messaging.
 - `resources`: `application.properties`, schema DDL, Protobuf schema, helper scripts (`kafka.sh`).
-- `protobuff/`: Docker Compose and broker configs for a Kafka + Schema Registry stack with Protobuf enabled.
 
 ---
 
@@ -39,25 +38,18 @@ Reactive Spring Boot service that accepts HTTP order requests, persists them via
 ---
 
 ## Kafka Setup Guide
-Use `src/main/resources/kafka.sh` or the scripts in `protobuff/` as a reference for topic creation and local cluster commands:
+Use the scripts in the root `doc/` directory as a reference for topic creation and running a local Docker cluster:
 
-```
-# Create topics used by the service (JSON + retry + DLT + Protobuf)
-./kafka.sh topic-create
+To run a local stack with a Kafka broker and Schema Registry, use `doc/docker-compose-kafka-schema-registry.yaml`:
 
-# Tail messages from a topic
-./kafka.sh consume order.events
-```
-
-To run a local stack with Kafka brokers, Schema Registry, and Protobuf support, use `protobuff/docker-compose.yaml`:
-
-```
-cd protobuff
-docker compose up -d
-./create-topics.sh
+```bash
+# From the project root
+docker compose -f doc/docker-compose-kafka-schema-registry.yaml up -d
 ```
 
-The application expects a Kafka cluster (or Confluent Platform) plus a Schema Registry reachable at `http://localhost:8081` when using Protobuf payloads. Update `application.properties` to match your environment.
+Verify or create topics using the instructions in [OrderService_Logic.md](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/OrderService_Logic.md).
+
+The application expects a Kafka cluster plus a Schema Registry reachable at `http://localhost:8081` when using Protobuf payloads.
 
 ---
 
@@ -79,16 +71,11 @@ Key properties in `src/main/resources/application.properties`:
 
 ## Running the Application
 
-To run the application locally (it runs completely standalone without any external microservice registry or cloud configuration servers):
+To run the application locally:
 
 ```bash
-# Start local Kafka, Schema Registry, and Postgres dependencies
-cd protobuff
-docker compose up -d
-./create-topics.sh
-
-# Back to the project root
-cd ..
+# Start local Kafka, Schema Registry, and Postgres dependencies from the project root
+docker compose -f doc/docker-compose-kafka-schema-registry.yaml up -d
 
 # Build and run the service
 mvn clean spring-boot:run

@@ -29,3 +29,6 @@ target/
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+
+# AI Agent Customizations
+.agents/

@@ -125,33 +125,8 @@ The following properties configured in [application.properties](file:///C:/Amit/
 
 ## 🔀 Serialization Formats: JSON vs. Protobuf
 
-The service supports two modes of message serialization on Kafka, toggled by the `order.use-protobuf` setting.
+The service supports two modes of message serialization on Kafka, toggled by the `order.use-protobuf` setting. For a detailed conceptual comparison of serialization formats, wire specifications, and the Schema Registry, refer to the [JSON vs. Protobuf Guide](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/doc/JSON_vs_protobuf.md).
 
-### Comparison: JSON vs. Protobuf Mode
-
-| Feature | JSON Mode (`order.use-protobuf=false`) | Protobuf Mode (`order.use-protobuf=true`) |
-| :--- | :--- | :--- |
-| **Topic** | `order.events` | `order.events.proto` |
-| **Payload Structure** | Plaintext ASCII/UTF-8 JSON string. | Binary serialization format. |
-| **Schema Enforcement** | Loose. The schema is implicit in Java classes; changes require careful coordination but aren't strictly blocked. | Strict. Schema is defined in `order_event.proto` and validated against a schema schema registered with **Confluent Schema Registry**. |
-| **Payload Size** | Larger. The keys/field names (e.g. `"eventId"`, `"orderId"`) are repeated in every message text, increasing bandwidth consumption. | Highly compact. Field names are replaced by integer tags, and values are packed into a dense binary layout. |
-| **CPU Overhead** | Higher serialization and deserialization CPU cost due to text parsing via Jackson. | Lower CPU overhead due to efficient binary serialization. |
-| **Schema Registry** | Not required. | **Required** (configured via `app.kafka.schema-registry-url` at `http://localhost:8081`). |
-| **Internal Mapper** | Publishes the domain `OrderEvent` directly. | Maps `OrderEvent` to the compiled protobuf class `OrderEventMessage` via `OrderEventProtoMapper`. |
-
-### Architectural Flow Differences
-
-1. **JSON Serialization Flow**:
-   - The background worker `OutboxPublisher` fetches the outbox record, deserializes the JSON database payload back to `OrderEvent`, and passes it to `OrderEventPublisher`.
-   - `OrderEventPublisher` uses `jsonKafkaSender` with a custom inline serializer `(topic, data) -> serializeEvent(...)` that writes JSON bytes.
-   - The consumer `OrderEventConsumer` subscribes to the main topic `order.events` and retry topic `order.events.retry`, deserializing using Jackson.
-
-2. **Protobuf Serialization Flow**:
-   - The background worker `OutboxPublisher` fetches the outbox record, deserializes the JSON database payload, and passes it to `OrderEventPublisher` with the `useProtobuf` flag set to `true`.
-   - `OrderEventPublisher` maps the event to `OrderEventMessage` (compiled Protobuf class) using `OrderEventProtoMapper.toProto(event)`.
-   - The message is published to `order.events.proto` using `protobufKafkaSender` configured with `KafkaProtobufSerializer`.
-   - The serializer registers the schema (`order_event.proto`) dynamically with the Schema Registry (on port `8081`).
-   - The consumer `OrderEventConsumer` subscribes to the protobuf topic `order.events.proto` using `protobufKafkaReceiver` configured with `KafkaProtobufDeserializer` and the target Specific Record class `OrderEventMessage`.
 
 ### How to Switch Between Formats
 
@@ -234,31 +209,42 @@ Perform the following steps to verify database transaction atomicity, Kafka publ
     docker exec -it kafka1 kafka-topics --list --bootstrap-server kafka1:19092
     ```
     If the required topics (`order.events`, `order.events.retry`, `order.events.dlt`, `order.events.proto`) are not present, create them by running the commands from [kafka.sh](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/doc/kafka.sh).
-
-### Step 2: Boot the Service
-Compile and run the Spring Boot application from the project root:
-```bash
-mvn clean spring-boot:run -pl reactiveOrderService
-```
-The server will start up on port `8080`.
-
-### Step 3: Run the Monitors
-1.  **Monitor the Kafka topic**: Start a console consumer to tail the main topic:
+5.  **Toggle Serialization Format (Optional)**: 
+    *   By default, the application runs in **JSON mode** (`order.use-protobuf=false` in `application.properties`).
+    *   To use **Protobuf mode**, set `order.use-protobuf=true` in [application.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/resources/application.properties) (or set environment variable `ORDER_USE_PROTOBUF=true`). Ensure the `schema-registry` container from step 1 is running.
+6.  **Boot the Service**: Compile and run the Spring Boot application from the project root:
     ```bash
-    docker exec -it kafka1 kafka-console-consumer \
-      --bootstrap-server kafka1:19092 \
-      --topic order.events \
-      --from-beginning \
-      --property print.key=true \
-      --property print.value=true \
-      --property print.headers=true
+    mvn clean spring-boot:run -pl reactiveOrderService
     ```
+    The server will start up on port `8080`.
+
+### Step 2: Run the Monitors
+1.  **Monitor the Kafka topic**:
+    *   **For JSON Mode**: Start a console consumer to tail the main topic:
+        ```bash
+        docker exec -it kafka1 kafka-console-consumer \
+          --bootstrap-server kafka1:19092 \
+          --topic order.events \
+          --from-beginning \
+          --property print.key=true \
+          --property print.value=true \
+          --property print.headers=true
+        ```
+    *   **For Protobuf Mode**: Start a schema-aware console consumer inside the `schema-registry` container to decode the binary messages:
+        ```bash
+        docker exec -it schema-registry kafka-protobuf-console-consumer \
+          --bootstrap-server kafka1:19092 \
+          --topic order.events.proto \
+          --from-beginning \
+          --property schema.registry.url=http://localhost:8081
+        ```
+        *(Note: Standard `kafka-console-consumer` on `order.events` will receive no events in Protobuf mode. If run directly on `order.events.proto`, it will output garbled binary payloads instead of readable json-like shapes).*
 2.  **Monitor the Database outbox status**: Open your PostgreSQL client, connect to `aidb`, and query the outbox table to see pending or dispatched records:
     ```sql
     SELECT id, status, attempts, available_at FROM microservice.order_outbox;
     ```
 
-### Step 4: Execute the Verification Scenarios
+### Step 3: Execute the Verification Scenarios
 
 You can verify the flows manually with the following detailed steps:
 
@@ -276,7 +262,7 @@ You can verify the flows manually with the following detailed steps:
 3.  **Verify DB state transitions**:
     *   Run the query to verify that the order was written to the orders table:
         ```sql
-        SELECT order_id, customer_id, amount, status FROM microservice.orders WHERE customer_id = 'CUST-100';
+        SELECT order_id, customer_id, amount, status FROM microservice.orders WHERE customer_id = '8';
         ```
         *(Should return 1 row with `amount=190.00` and `status=PLACED`)*.
     *   Run the query to verify the outbox entry:
@@ -296,10 +282,19 @@ You can verify the flows manually with the following detailed steps:
         ```
         *(The row `status` will now have transitioned to `'PUBLISHED'` and the `attempts` count incremented to `1`)*.
 5.  **Verify Kafka Event**:
-    *   Observe the monitor console consumer window running the `kafka-console-consumer`.
-    *   A message matching the order payload will print as follows:
+    *   Observe the monitor console consumer window running the console consumer started in **Step 2**.
+    *   **In JSON Mode**: A message matching the order payload will print as follows:
         ```json
         {"eventId":"[UUID]","orderId":"[UUID]","customerId":"8","amount":190.0,"status":"PLACED"}
+        ```
+    *   **In Protobuf Mode**: The schema-aware consumer will output the decoded protobuf structure:
+        ```json
+        eventId: "[UUID]"
+        orderId: "[UUID]"
+        customerId: "8"
+        status: "PLACED"
+        amount: 190.0
+        timestamp: 1782268780410
         ```
 6.  **Verify Application logs**:
     *   Look at the console log output of the running Spring Boot application. It will trace:
@@ -307,30 +302,39 @@ You can verify the flows manually with the following detailed steps:
         *   `Manual outbox publish triggered via API`
         *   `🔍 Found 1 pending outbox records to publish`
         *   `Outbox record id=[UUID] published successfully`
-        *   `Processing order event for orderId=[UUID] customerId=8 amount=190.0` (Event consumed)
+        *   **In JSON Mode**: `Processing order event for orderId=[UUID] customerId=8 amount=190.0`
+        *   **In Protobuf Mode**: `Received Protobuf eventId=[UUID] from topic=order.events.proto`
 
-#### Path B: Ingest an Invalid Order (Atomic persistence validation check)
-1.  Submit an order with an invalid negative amount:
+#### Path B: Ingest an Invalid Order & Database Rollback Check
+
+You can test two types of validations: Java service-level validation (which aborts before hitting the DB), and database-level constraint validation (which triggers a rollback).
+
+##### 1. Service Boundary Validation (Negative Amount)
+*   **Request**: `curl -i -X POST 'http://localhost:8080/orders' -H 'Content-Type: application/json' -d '{"customerId":"CUST-ERR", "amount":-50.00}'`
+*   **Explanation**: Java validation in [OrderService.placeOrder](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/java/com/saha/amit/reactiveOrderService/service/OrderService.java#L27-L30) immediately rejects the request with a `Mono.error` *before* initiating any database transactions. No state changes occur.
+
+##### 2. Database Constraint Validation & Rollback (Blocked Customer)
+1.  Submit an order with customerId `"BLOCKED"` and a valid amount:
     ```bash
     curl -i -X POST 'http://localhost:8080/orders' \
       -H 'Content-Type: application/json' \
-      -d '{"customerId":"CUST-ERR", "amount":-50.00}'
+      -d '{"customerId":"BLOCKED", "amount":100.00}'
     ```
 2.  **Verify Result**: The API returns an internal error code (`500`).
-3.  **Verify Atomicity**:
+3.  **Verify Rollback**:
     *   Query the orders table:
         ```sql
-        SELECT * FROM microservice.orders WHERE customer_id = 'CUST-ERR';
+        SELECT * FROM microservice.orders WHERE customer_id = 'BLOCKED';
         ```
-        *(Should return 0 rows)*.
+        *(Returns 0 rows)*.
     *   Query the outbox table:
         ```sql
         SELECT * FROM microservice.order_outbox WHERE status = 'PENDING';
         ```
-        *(Should return 0 rows)*.
-    *   This confirms R2DBC automatically rolled back the transaction, guaranteeing that no partial or mismatched database state was written.
+        *(Returns 0 rows)*.
+    *   **How it works**: Java validates the amount and executes `insertOrder` successfully. However, when executing `insertOutbox`, the database's `check_blocked_customer` constraint is violated because the payload contains `"customerId":"BLOCKED"`. The resulting SQL error causes the reactive `TransactionalOperator` to abort and roll back the entire transaction, deleting the inserted order from the database.
 
-#### Path C: Trigger Consumer Retry and DLT (Consumer Resiliency Check)
+#### Path C: Trigger Consumer Retry and DLT (Consumer Resiliency Check - JSON mode)
 Since HTTP endpoints validate the values before hitting the database, we must push a "poison event" directly onto the Kafka topic to bypass HTTP validation and trigger the consumer-side retry and Dead Letter Topic flow.
 1.  **Monitor the DLT topic**: Open a new terminal window and start a console consumer on the Dead Letter Topic:
     ```bash
@@ -382,35 +386,6 @@ Since HTTP endpoints validate the values before hitting the database, we must pu
         *   `source-topic = order.events`
         *   `failure-type = IllegalArgumentException`
         *   `failure-reason = Invalid amount: -10.0`
-
-#### Path D: Testing Protobuf Mode
-1.  **Change application configuration**: In [application.properties](file:///C:/Amit/Work/code/Java/event_driven/kafkaSolutions/reactiveOrderService/src/main/resources/application.properties), set:
-    ```properties
-    order.use-protobuf=true
-    ```
-2.  **Monitor the Protobuf topic**: Start a schema-aware console consumer on the Protobuf topic to properly decode binary messages:
-    ```bash
-    docker exec -it schema-registry kafka-protobuf-console-consumer \
-      --bootstrap-server kafka1:19092 \
-      --topic order.events.proto \
-      --from-beginning \
-      --property schema.registry.url=http://localhost:8081
-    ```
-    *(Note: Standard `kafka-console-consumer` on `order.events` will receive no events in Protobuf mode. If run directly on `order.events.proto`, it will output garbled binary payloads instead of readable json-like shapes).*
-3.  **Restart the service** and place a valid order:
-    ```bash
-    curl -X POST 'http://localhost:8080/orders' \
-      -H 'Content-Type: application/json' \
-      -d '{"customerId":"CUST-200", "amount":100.00}'
-    ```
-4.  **Manually Trigger Outbox Dispatch**:
-    *   Since the poll-interval is configured to a large value (e.g. 1 hour) in development, trigger the outbox publisher manually to send the message:
-        ```bash
-        curl -X POST 'http://localhost:8080/orders/outbox/publish'
-        ```
-5.  **Verify Serialization**:
-    *   The service maps the order to a compiled Protobuf class using `OrderEventProtoMapper` and serializes it using `KafkaProtobufSerializer`.
-    *   The message will be published to the `order.events.proto` topic, and the schema will register dynamically with the Schema Registry at `localhost:8081`.
 
 ---
 

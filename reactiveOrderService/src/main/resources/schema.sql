@@ -1,3 +1,4 @@
+--mysql
 use `amit`;
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS order_outbox (
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     available_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_error TEXT NULL,
-    attempts INT NOT NULL DEFAULT 0
+    attempts INT NOT NULL DEFAULT 0,
+    CONSTRAINT check_blocked_customer CHECK (payload NOT LIKE '%"customerId":"BLOCKED"%')
 );
 
 CREATE INDEX idx_order_outbox_status_available
@@ -56,7 +58,8 @@ CREATE TABLE IF NOT EXISTS microservice.order_outbox (
     created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     available_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_error TEXT NULL,
-    attempts INT NOT NULL DEFAULT 0
+    attempts INT NOT NULL DEFAULT 0,
+    CONSTRAINT check_blocked_customer CHECK (payload NOT LIKE '%"customerId":"BLOCKED"%')
     );
 
 CREATE INDEX microservice.idx_order_outbox_status_available
