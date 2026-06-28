@@ -24,6 +24,11 @@ The project is structured as a two-stage journey from functional programming to 
 
 ---
 
+## 📖 Production Kafka Integration Patterns
+For a deep dive into the patterns, advantages, disadvantages, and ideal scenarios of the event-driven architectures implemented in this repository, see the [production_patterns_kafka.md](./doc/production_patterns_kafka.md) conceptual guide.
+
+---
+
 ## 📦 Module: `orderServiceFunctions`
 This is the core business module handling basic order lifecycles through reactive Kafka streams.
 
@@ -43,6 +48,12 @@ A collection of utility functions demonstrating every major **Spring Cloud Funct
 
 > 📖 **Detailed Functional Documentation**: See the [FUNCTIONS_GUIDE.md](./functionsSample/FUNCTIONS_GUIDE.md) for a full list of endpoints, functional signatures, and their corresponding test scripts.
 
+---
+
+## ⚙️ Module: `nonReactiveOrderService`
+A traditional, blocking order service that uses JPA/Hibernate and synchronous Kafka publishing.
+
+> 📖 **Detailed Non-Reactive Documentation**: See the [non_reactive_order_service.md](./doc/non_reactive_order_service.md) for a detailed transaction workflow, dual-write consistency analysis, and rollback verification procedures.
 
 ---
 
@@ -73,6 +84,18 @@ This is a lightweight module with no external infrastructure dependencies.
 *   **Key Dependencies**:
     *   `spring-cloud-function-web`: Exposes Java functions as HTTP endpoints.
     *   `spring-boot-starter-webflux`: Provides the underlying Netty server.
+
+### ⚙️ `nonReactiveOrderService` Requirements
+This is a standard blocking module using JPA and direct Kafka connection.
+
+*   **Infrastructure (External)**:
+    *   **Kafka Cluster**: Target broker cluster for event production.
+    *   **Database**: Relational Database (MySQL/PostgreSQL) for order persistence.
+    *   **Port**: Defaults to `8080`.
+*   **Key Dependencies**:
+    *   `spring-boot-starter-data-jpa`: SQL persistence.
+    *   `spring-kafka`: Standard Spring Kafka templates and configuration.
+    *   `spring-boot-starter-web`: Spring MVC web controller.
 
 ---
 

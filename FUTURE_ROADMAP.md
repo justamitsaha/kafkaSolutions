@@ -11,6 +11,8 @@ This roadmap outlines the journey from a local functional prototype to a global-
 - [x] **EDA Basics**: Ingestion pipeline with Kafka producer/consumer.
 - [x] **Resiliency**: Manual ACKs, Retries, and Dead Letter Topics (DLT).
 - [x] **Logic Pipeling**: Programmatic and Declarative function composition.
+- [ ] **Self-Healing DLQ Reprocessing**: Implement a consumer for Dead Letter Topics (`.DLT` / `.DLQ`) that inspects exception headers, repairs payload anomalies, and automatically re-publishes repaired events.
+- [ ] **Low-Level Byte & Header Inspection**: Use raw byte payload bindings (`byte[]`) to perform manual serialization control and custom header validation before mapping to domain models.
 
 ---
 
